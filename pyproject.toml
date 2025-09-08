@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mineru_vl_utils"
+version = "0.1.0"
+description = "Utilities for Mineru Vision-Language models"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+  "httpx",
+  "pillow",
+  "pydantic",
+]
+
+[project.optional-dependencies]
+transformers = [
+  # fmt: off
+  "torch==2.6.0",
+  "transformers==4.51.1",
+  "accelerate==1.5.1",
+]
+vllm = [
+  # fmt: off
+  "torch==2.7.0",
+  "torchaudio==2.7.0",
+  "torchvision==0.22.0",
+  "triton==3.3.0",
+  "vllm==0.9.1",
+]
+
+# [project.scripts]
+# ddp-cli = "ddp.cli.entry:main"
+
+[tool.black]
+line-length = 128
+
+[tool.ruff]
+line-length = 128
