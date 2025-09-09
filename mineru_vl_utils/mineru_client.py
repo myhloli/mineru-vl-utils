@@ -1,3 +1,4 @@
+import asyncio
 import math
 import re
 from typing import Literal, Sequence
@@ -193,6 +194,42 @@ class MinerUClient:
             image = image.resize((new_w, new_h), Image.Resampling.BICUBIC)
         return image
 
+    def layout_detect(self, image: Image.Image) -> list[ContentBlock]:
+        image = image.convert("RGB") if image.mode != "RGB" else image
+        image = image.resize(self.layout_image_size, Image.Resampling.BICUBIC)
+        prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
+        output = self.client.predict(image, prompt)
+
+        blocks: list[ContentBlock] = []
+        for line in output.split("\n"):
+            match = re.match(_layout_re, line)
+            if not match:
+                continue
+            x1, y1, x2, y2, ref_type, tail = match.groups()
+            ref_type = ref_type.lower()
+            bbox = _convert_bbox((x1, y1, x2, y2))
+            angle = _parse_angle(tail)
+            blocks.append(ContentBlock(ref_type, bbox, angle=angle))
+        return blocks
+
+    async def aio_layout_detect(self, image: Image.Image) -> list[ContentBlock]:
+        image = image.convert("RGB") if image.mode != "RGB" else image
+        image = image.resize(self.layout_image_size, Image.Resampling.BICUBIC)
+        prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
+        output = await self.client.aio_predict(image, prompt)
+
+        blocks: list[ContentBlock] = []
+        for line in output.split("\n"):
+            match = re.match(_layout_re, line)
+            if not match:
+                continue
+            x1, y1, x2, y2, ref_type, tail = match.groups()
+            ref_type = ref_type.lower()
+            bbox = _convert_bbox((x1, y1, x2, y2))
+            angle = _parse_angle(tail)
+            blocks.append(ContentBlock(ref_type, bbox, angle=angle))
+        return blocks
+
     def one_step_extract(self, image: Image.Image) -> list[ContentBlock]:
         image = image.convert("RGB") if image.mode != "RGB" else image
         prompt = self.prompts.get("[parsing]") or self.prompts["[default]"]
@@ -221,29 +258,11 @@ class MinerUClient:
         )
         return blocks
 
-    def one_step_layout_detect(self, image: Image.Image) -> list[ContentBlock]:
-        image = image.convert("RGB") if image.mode != "RGB" else image
-        image = image.resize(self.layout_image_size, Image.Resampling.BICUBIC)
-        prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
-        output = self.client.predict(image, prompt)
-
-        blocks: list[ContentBlock] = []
-        for line in output.split("\n"):
-            match = re.match(_layout_re, line)
-            if not match:
-                continue
-            x1, y1, x2, y2, ref_type, tail = match.groups()
-            ref_type = ref_type.lower()
-            bbox = _convert_bbox((x1, y1, x2, y2))
-            angle = _parse_angle(tail)
-            blocks.append(ContentBlock(ref_type, bbox, angle=angle))
-        return blocks
-
     def two_step_extract(self, image: Image.Image) -> list[ContentBlock]:
         image = image.convert("RGB") if image.mode != "RGB" else image
         width, height = image.size
 
-        blocks = self.one_step_layout_detect(image)
+        blocks = self.layout_detect(image)
         block_images: list[Image.Image] = []
         block_prompts: list[str] = []
         block_indices: list[int] = []
@@ -274,5 +293,81 @@ class MinerUClient:
             handle_equation_block=self.handle_equation_block,
             abandon_paratext=self.abandon_paratext,
         )
-
         return blocks
+
+    async def aio_two_step_extract(self, image: Image.Image) -> list[ContentBlock]:
+        image = image.convert("RGB") if image.mode != "RGB" else image
+        width, height = image.size
+
+        blocks = await self.aio_layout_detect(image)
+        block_images: list[Image.Image] = []
+        block_prompts: list[str] = []
+        block_indices: list[int] = []
+        for idx, block in enumerate(blocks):
+            if block.type in ("image", "list", "equation_block"):
+                continue  # Skip image blocks.
+
+            x1, y1, x2, y2 = block.bbox
+            scaled_bbox = (x1 * width, y1 * height, x2 * width, y2 * height)
+            block_image = image.crop(scaled_bbox)
+            if block.angle in [90, 180, 270]:
+                block_image = block_image.rotate(block.angle, expand=True)
+
+            block_images.append(self._resize_by_need(block_image))
+            block_prompt = self.prompts.get(block.type) or self.prompts["[default]"]
+            block_prompts.append(block_prompt)
+            block_indices.append(idx)
+
+        outputs = await self.client.aio_batch_predict(block_images, block_prompts)
+        for idx, output in zip(block_indices, outputs):
+            block = blocks[idx]
+            if block.type == "table":
+                output = convert_otsl_to_html(output)
+            block.content = output
+
+        blocks = _post_process(
+            blocks,
+            handle_equation_block=self.handle_equation_block,
+            abandon_paratext=self.abandon_paratext,
+        )
+        return blocks
+
+    def batch_two_step_extract(
+        self,
+        images: list[Image.Image],
+        max_concurrency: int = 100,
+    ) -> list[list[ContentBlock]]:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        task = self.aio_batch_two_step_extract(
+            images=images,
+            max_concurrency=max_concurrency,
+        )
+
+        if loop is not None:
+            return loop.run_until_complete(task)
+        else:
+            return asyncio.run(task)
+
+    async def aio_batch_two_step_extract(
+        self,
+        images: list[Image.Image],
+        max_concurrency: int = 100,
+    ) -> list[list[ContentBlock]]:
+        semaphore = asyncio.Semaphore(max_concurrency)
+        outputs = [[]] * len(images)
+
+        async def predict_with_semaphore(idx: int, image: Image.Image):
+            async with semaphore:
+                output = await self.aio_two_step_extract(image=image)
+                outputs[idx] = output
+
+        tasks = []
+        for idx, image in enumerate(images):
+            tasks.append(predict_with_semaphore(idx, image))
+        await asyncio.gather(*tasks)
+
+        return outputs
