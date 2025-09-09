@@ -21,15 +21,17 @@ processor = AutoProcessor.from_pretrained(
     use_fast=True,
 )
 
-print("Testing ...")
+print("Creating client ...")
 client = MinerUClient(
     backend="transformers",
     model=model,
     processor=processor,
 )
 
+print("Loading image ...")
 image_path = "/share/jinzhenjiang/OmniDocBench/v1_0/docstructbench_00039896.1983.10545823.pdf_1.jpg"
 image = Image.open(image_path).convert("RGB")
 
+print("Extracting ...")
 output = client.two_step_extract(image)
 print(output)
