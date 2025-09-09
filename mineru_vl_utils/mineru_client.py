@@ -5,9 +5,9 @@ from typing import Literal, Sequence
 
 from PIL import Image
 
-from .client import DEFAULT_SYSTEM_PROMPT, VlmClient
 from .otsl2html import convert_otsl_to_html
 from .structs import ContentBlock
+from .vlm_client import DEFAULT_SYSTEM_PROMPT, VlmClient, new_vlm_client
 
 _coord_re = r"^(\d+)\s+(\d+)\s+(\d+)\s+(\d+)$"
 _layout_re = r"^<\|box_start\|>(\d+)\s+(\d+)\s+(\d+)\s+(\d+)<\|box_end\|><\|ref_start\|>(\w+?)<\|ref_end\|>(.*)$"
@@ -136,8 +136,11 @@ def _post_process(
 class MinerUClient:
     def __init__(
         self,
+        backend: Literal["http", "transformers", "vllm"],
         model_name: str | None = None,
         server_url: str | None = None,
+        model=None,  # transformers model
+        processor=None,  # transformers processor
         prompts: dict[str, str] = DEFAULT_PROMPTS,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         temperature: float | None = DEFAULT_TEMPERATURE,
@@ -155,9 +158,12 @@ class MinerUClient:
         http_timeout: int = 600,
         debug: bool = False,
     ) -> None:
-        self.client = VlmClient(
+        self.client = new_vlm_client(
+            backend=backend,
             model_name=model_name,
             server_url=server_url,
+            model=model,
+            processor=processor,
             system_prompt=system_prompt,
             temperature=temperature,
             top_p=top_p,

@@ -3,17 +3,19 @@ import json
 import os
 import re
 from base64 import b64encode
-from dataclasses import dataclass
 from io import BytesIO
 from typing import AsyncIterable, Iterable, List, Optional, Set, Tuple, Union
 
 import httpx
 from PIL import Image
 
+from .base_client import (
+    DEFAULT_SYSTEM_PROMPT,
+    DEFAULT_USER_PROMPT,
+    SamplingParams,
+    VlmClient,
+)
 from .utils import aio_load_resource, load_resource
-
-DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
-DEFAULT_USER_PROMPT = "What is the text in the illustrate?"
 
 
 class RequestError(ValueError):
@@ -22,17 +24,6 @@ class RequestError(ValueError):
 
 class ServerError(RuntimeError):
     pass
-
-
-@dataclass
-class SamplingParams:
-    temperature: float | None
-    top_p: float | None
-    top_k: int | None
-    repetition_penalty: float | None
-    presence_penalty: float | None
-    no_repeat_ngram_size: int | None
-    max_new_tokens: int | None
 
 
 def _get_env(key: str, default: str | None = None) -> str:
@@ -66,7 +57,7 @@ def _get_image_format(image_bytes: bytes) -> str:
     raise RequestError("Unsupported image format.")
 
 
-class VlmClient:
+class HttpVlmClient(VlmClient):
     def __init__(
         self,
         model_name: str | None = None,
@@ -85,17 +76,19 @@ class VlmClient:
         http_timeout: int = 600,
         debug: bool = False,
     ) -> None:
-        self.prompt = prompt
-        self.system_prompt = system_prompt
-        self.temperature = temperature
-        self.top_p = top_p
-        self.top_k = top_k
-        self.repetition_penalty = repetition_penalty
-        self.presence_penalty = presence_penalty
-        self.no_repeat_ngram_size = no_repeat_ngram_size
-        self.max_new_tokens = max_new_tokens
-        self.text_before_image = text_before_image
-        self.allow_truncated_content = allow_truncated_content
+        super().__init__(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            repetition_penalty=repetition_penalty,
+            presence_penalty=presence_penalty,
+            no_repeat_ngram_size=no_repeat_ngram_size,
+            max_new_tokens=max_new_tokens,
+            text_before_image=text_before_image,
+            allow_truncated_content=allow_truncated_content,
+        )
         self.http_timeout = http_timeout
         self.debug = debug
 
@@ -168,41 +161,6 @@ class VlmClient:
         if not model_name:
             raise RequestError(f"Model name is empty in response from {base_url}. Response body: {response.text}")
         return model_name
-
-    def build_sampling_params(
-        self,
-        temperature: Optional[float],
-        top_p: Optional[float],
-        top_k: Optional[int],
-        repetition_penalty: Optional[float],
-        presence_penalty: Optional[float],
-        no_repeat_ngram_size: Optional[int],
-        max_new_tokens: Optional[int],
-    ) -> SamplingParams:
-        if temperature is None:
-            temperature = self.temperature
-        if top_p is None:
-            top_p = self.top_p
-        if top_k is None:
-            top_k = self.top_k
-        if repetition_penalty is None:
-            repetition_penalty = self.repetition_penalty
-        if presence_penalty is None:
-            presence_penalty = self.presence_penalty
-        if no_repeat_ngram_size is None:
-            no_repeat_ngram_size = self.no_repeat_ngram_size
-        if max_new_tokens is None:
-            max_new_tokens = self.max_new_tokens
-
-        return SamplingParams(
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            repetition_penalty=repetition_penalty,
-            presence_penalty=presence_penalty,
-            no_repeat_ngram_size=no_repeat_ngram_size,
-            max_new_tokens=max_new_tokens,
-        )
 
     def build_image_url(self, image: bytes, image_format: str | None) -> str:
         image_base64 = b64encode(image).decode("utf-8")

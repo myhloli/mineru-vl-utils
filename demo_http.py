@@ -107,7 +107,11 @@ test_image_paths = """
 """.strip().split("\n")
 
 if __name__ == "__main__":
-    client = MinerUClient(model_name="mineru_dev_250903_2step", server_url="http://llm.bigdata.shlab.tech")
+    client = MinerUClient(
+        backend="http",
+        model_name="mineru_dev_250903_2step",
+        server_url="http://llm.bigdata.shlab.tech",
+    )
 
     # Test1
     image = Image.open(test_image_paths[0])
