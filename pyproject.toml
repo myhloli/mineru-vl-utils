@@ -7,7 +7,7 @@ name = "mineru_vl_utils"
 version = "0.1.0"
 description = "Utilities for Mineru Vision-Language models"
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10,<=3.13"
 dependencies = [
   "httpx",
   "pillow",
@@ -17,17 +17,12 @@ dependencies = [
 [project.optional-dependencies]
 transformers = [
   # fmt: off
-  "torch==2.6.0",
-  "transformers==4.51.1",
-  "accelerate==1.5.1",
+  "torch>=2.6.0,<2.8.0",
+  "transformers>=4.51.1,<5.0.0",
+  "accelerate>=1.5.1",
 ]
 vllm = [
-  # fmt: off
-  "torch==2.7.0",
-  "torchaudio==2.7.0",
-  "torchvision==0.22.0",
-  "triton==3.3.0",
-  "vllm==0.9.1",
+  "vllm==0.10.1.1",
 ]
 
 # [project.scripts]
