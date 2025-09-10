@@ -7,7 +7,7 @@ from PIL import Image
 
 from .otsl2html import convert_otsl_to_html
 from .structs import ContentBlock
-from .vlm_client import DEFAULT_SYSTEM_PROMPT, VlmClient, new_vlm_client
+from .vlm_client import DEFAULT_SYSTEM_PROMPT, new_vlm_client
 
 _coord_re = r"^(\d+)\s+(\d+)\s+(\d+)\s+(\d+)$"
 _layout_re = r"^<\|box_start\|>(\d+)\s+(\d+)\s+(\d+)\s+(\d+)<\|box_end\|><\|ref_start\|>(\w+?)<\|ref_end\|>(.*)$"
@@ -136,7 +136,7 @@ def _post_process(
 class MinerUClient:
     def __init__(
         self,
-        backend: Literal["http", "transformers", "vllm"],
+        backend: Literal["http", "transformers", "vllm-engine"],
         model_name: str | None = None,
         server_url: str | None = None,
         model=None,  # transformers model
