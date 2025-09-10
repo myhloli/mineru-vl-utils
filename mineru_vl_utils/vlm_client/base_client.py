@@ -139,7 +139,7 @@ class VlmClient:
 
 
 def new_vlm_client(
-    backend: Literal["http", "transformers", "vllm"],
+    backend: Literal["http", "transformers", "vllm-engine"],
     model_name: str | None = None,
     server_url: str | None = None,
     model=None,  # transformers model
@@ -199,7 +199,7 @@ def new_vlm_client(
             allow_truncated_content=allow_truncated_content,
         )
 
-    elif backend == "vllm":
+    elif backend == "vllm-engine":
         raise NotImplementedError("vllm backend is not implemented yet.")
     
     else:

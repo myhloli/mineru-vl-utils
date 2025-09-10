@@ -7,7 +7,7 @@ from PIL import Image
 
 from .otsl2html import convert_otsl_to_html
 from .structs import ContentBlock
-from .vlm_client import DEFAULT_SYSTEM_PROMPT, VlmClient, new_vlm_client
+from .vlm_client import DEFAULT_SYSTEM_PROMPT, new_vlm_client
 
 _coord_re = r"^(\d+)\s+(\d+)\s+(\d+)\s+(\d+)$"
 _layout_re = r"^<\|box_start\|>(\d+)\s+(\d+)\s+(\d+)\s+(\d+)<\|box_end\|><\|ref_start\|>(\w+?)<\|ref_end\|>(.*)$"
@@ -136,11 +136,12 @@ def _post_process(
 class MinerUClient:
     def __init__(
         self,
-        backend: Literal["http", "transformers", "vllm"],
+        backend: Literal["http", "transformers", "vllm-engine"],
         model_name: str | None = None,
         server_url: str | None = None,
         model=None,  # transformers model
         processor=None,  # transformers processor
+        model_path: str | None = None,
         prompts: dict[str, str] = DEFAULT_PROMPTS,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         temperature: float | None = DEFAULT_TEMPERATURE,
@@ -158,6 +159,31 @@ class MinerUClient:
         http_timeout: int = 600,
         debug: bool = False,
     ) -> None:
+        if backend == "transformers":
+            if model is None or processor is None:
+                if not model_path:
+                    raise ValueError("model_path must be provided when model or processor is None.")
+
+                try:
+                    from transformers import (
+                        AutoProcessor,
+                        Qwen2VLForConditionalGeneration,
+                    )
+                except ImportError:
+                    raise ImportError("Please install transformers to use the transformers backend.")
+
+                if model is None:
+                    model = Qwen2VLForConditionalGeneration.from_pretrained(
+                        model_path,
+                        torch_dtype="auto",
+                        device_map="auto",
+                    )
+                if processor is None:
+                    processor = AutoProcessor.from_pretrained(
+                        model_path,
+                        use_fast=True,
+                    )
+
         self.client = new_vlm_client(
             backend=backend,
             model_name=model_name,
