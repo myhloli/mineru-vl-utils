@@ -84,8 +84,11 @@ def _post_process(
     handle_equation_block: bool,
     abandon_paratext: bool,
 ) -> list[ContentBlock]:
-    sem_equation_spans: dict[int, list[int]] = {}
+    for block in blocks:
+        if block.type == "table" and block.content:
+            block.content = convert_otsl_to_html(block.content)
 
+    sem_equation_spans: dict[int, list[int]] = {}
     if handle_equation_block:
         sem_equation_indices: list[int] = []
         span_equation_indices: list[int] = []
@@ -141,6 +144,7 @@ class MinerUClient:
         server_url: str | None = None,
         model=None,  # transformers model
         processor=None,  # transformers processor
+        vllm_llm=None,  # vllm.LLM model
         model_path: str | None = None,
         prompts: dict[str, str] = DEFAULT_PROMPTS,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
@@ -156,6 +160,7 @@ class MinerUClient:
         handle_equation_block: bool = True,
         abandon_paratext: bool = False,
         max_new_tokens: int | None = None,
+        max_concurrency: int = 100,
         http_timeout: int = 600,
         debug: bool = False,
     ) -> None:
@@ -169,14 +174,19 @@ class MinerUClient:
                         AutoProcessor,
                         Qwen2VLForConditionalGeneration,
                     )
+                    from transformers import __version__ as transformers_version
                 except ImportError:
                     raise ImportError("Please install transformers to use the transformers backend.")
 
                 if model is None:
+                    dtype_key = "torch_dtype"
+                    ver_parts = transformers_version.split(".")
+                    if len(ver_parts) >= 2 and int(ver_parts[0]) >= 4 and int(ver_parts[1]) >= 56:
+                        dtype_key = "dtype"
                     model = Qwen2VLForConditionalGeneration.from_pretrained(
                         model_path,
-                        torch_dtype="auto",
                         device_map="auto",
+                        **{dtype_key: "auto"},  # type: ignore
                     )
                 if processor is None:
                     processor = AutoProcessor.from_pretrained(
@@ -184,12 +194,25 @@ class MinerUClient:
                         use_fast=True,
                     )
 
+        elif backend == "vllm-engine":
+            if vllm_llm is None:
+                if not model_path:
+                    raise ValueError("model_path must be provided when vllm_llm is None.")
+
+                try:
+                    import vllm
+                except ImportError:
+                    raise ImportError("Please install vllm to use the vllm-engine backend.")
+
+                vllm_llm = vllm.LLM(model_path)
+
         self.client = new_vlm_client(
             backend=backend,
             model_name=model_name,
             server_url=server_url,
             model=model,
             processor=processor,
+            vllm_llm=vllm_llm,
             system_prompt=system_prompt,
             temperature=temperature,
             top_p=top_p,
@@ -208,6 +231,8 @@ class MinerUClient:
         self.max_image_edge_ratio = max_image_edge_ratio
         self.handle_equation_block = handle_equation_block
         self.abandon_paratext = abandon_paratext
+        self.max_concurrency = max_concurrency
+        self.batching_mode = "concurrent" if backend == "http-client" else "stepping"
 
     def _resize_by_need(self, image: Image.Image) -> Image.Image:
         edge_ratio = max(image.size) / min(image.size)
@@ -226,12 +251,7 @@ class MinerUClient:
             image = image.resize((new_w, new_h), Image.Resampling.BICUBIC)
         return image
 
-    def layout_detect(self, image: Image.Image) -> list[ContentBlock]:
-        image = image.convert("RGB") if image.mode != "RGB" else image
-        image = image.resize(self.layout_image_size, Image.Resampling.BICUBIC)
-        prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
-        output = self.client.predict(image, prompt)
-
+    def _parse_layout_output(self, output: str) -> list[ContentBlock]:
         blocks: list[ContentBlock] = []
         for line in output.split("\n"):
             match = re.match(_layout_re, line)
@@ -243,24 +263,57 @@ class MinerUClient:
             angle = _parse_angle(tail)
             blocks.append(ContentBlock(ref_type, bbox, angle=angle))
         return blocks
+
+    def _prepare_for_extract(
+        self,
+        image: Image.Image,
+        blocks: list[ContentBlock],
+    ) -> tuple[list[Image.Image], list[str], list[int]]:
+        width, height = image.size
+        block_images: list[Image.Image] = []
+        prompts: list[str] = []
+        indices: list[int] = []
+        for idx, block in enumerate(blocks):
+            if block.type in ("image", "list", "equation_block"):
+                continue  # Skip image blocks.
+            x1, y1, x2, y2 = block.bbox
+            scaled_bbox = (x1 * width, y1 * height, x2 * width, y2 * height)
+            block_image = image.crop(scaled_bbox)
+            if block.angle in [90, 180, 270]:
+                block_image = block_image.rotate(block.angle, expand=True)
+            block_images.append(self._resize_by_need(block_image))
+            prompt = self.prompts.get(block.type) or self.prompts["[default]"]
+            prompts.append(prompt)
+            indices.append(idx)
+        return block_images, prompts, indices
+
+    def layout_detect(self, image: Image.Image) -> list[ContentBlock]:
+        image = image.convert("RGB") if image.mode != "RGB" else image
+        image = image.resize(self.layout_image_size, Image.Resampling.BICUBIC)
+        prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
+        output = self.client.predict(image, prompt)
+        return self._parse_layout_output(output)
+
+    def batch_layout_detect(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
+        images = [im.convert("RGB") if im.mode != "RGB" else im for im in images]
+        images = [im.resize(self.layout_image_size, Image.Resampling.BICUBIC) for im in images]
+        prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
+        outputs = self.client.batch_predict(images, prompt)
+        return [self._parse_layout_output(output) for output in outputs]
 
     async def aio_layout_detect(self, image: Image.Image) -> list[ContentBlock]:
         image = image.convert("RGB") if image.mode != "RGB" else image
         image = image.resize(self.layout_image_size, Image.Resampling.BICUBIC)
         prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
         output = await self.client.aio_predict(image, prompt)
+        return self._parse_layout_output(output)
 
-        blocks: list[ContentBlock] = []
-        for line in output.split("\n"):
-            match = re.match(_layout_re, line)
-            if not match:
-                continue
-            x1, y1, x2, y2, ref_type, tail = match.groups()
-            ref_type = ref_type.lower()
-            bbox = _convert_bbox((x1, y1, x2, y2))
-            angle = _parse_angle(tail)
-            blocks.append(ContentBlock(ref_type, bbox, angle=angle))
-        return blocks
+    async def aio_batch_layout_detect(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
+        images = [im.convert("RGB") if im.mode != "RGB" else im for im in images]
+        images = [im.resize(self.layout_image_size, Image.Resampling.BICUBIC) for im in images]
+        prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
+        outputs = await self.client.aio_batch_predict(images, prompt)
+        return [self._parse_layout_output(output) for output in outputs]
 
     def one_step_extract(self, image: Image.Image) -> list[ContentBlock]:
         image = image.convert("RGB") if image.mode != "RGB" else image
@@ -279,8 +332,6 @@ class MinerUClient:
             ref_type = match.group(2).replace("<|txt_contd|>", "").strip()
             ref_type = ref_type.lower()
             content = match.group(3)
-            if ref_type == "table":
-                content = convert_otsl_to_html(content)
             blocks.append(ContentBlock(ref_type, bbox, content=content))
             output = output[len(match.group(0)) :]
         blocks = _post_process(
@@ -292,104 +343,45 @@ class MinerUClient:
 
     def two_step_extract(self, image: Image.Image) -> list[ContentBlock]:
         image = image.convert("RGB") if image.mode != "RGB" else image
-        width, height = image.size
-
         blocks = self.layout_detect(image)
-        block_images: list[Image.Image] = []
-        block_prompts: list[str] = []
-        block_indices: list[int] = []
-        for idx, block in enumerate(blocks):
-            if block.type in ("image", "list", "equation_block"):
-                continue  # Skip image blocks.
-
-            x1, y1, x2, y2 = block.bbox
-            scaled_bbox = (x1 * width, y1 * height, x2 * width, y2 * height)
-            block_image = image.crop(scaled_bbox)
-            if block.angle in [90, 180, 270]:
-                block_image = block_image.rotate(block.angle, expand=True)
-
-            block_images.append(self._resize_by_need(block_image))
-            block_prompt = self.prompts.get(block.type) or self.prompts["[default]"]
-            block_prompts.append(block_prompt)
-            block_indices.append(idx)
-
-        outputs = self.client.batch_predict(block_images, block_prompts)
-        for idx, output in zip(block_indices, outputs):
-            block = blocks[idx]
-            if block.type == "table":
-                output = convert_otsl_to_html(output)
-            block.content = output
-
-        blocks = _post_process(
+        block_images, prompts, indices = self._prepare_for_extract(image, blocks)
+        outputs = self.client.batch_predict(block_images, prompts)
+        for idx, output in zip(indices, outputs):
+            blocks[idx].content = output
+        return _post_process(
             blocks,
             handle_equation_block=self.handle_equation_block,
             abandon_paratext=self.abandon_paratext,
         )
-        return blocks
 
     async def aio_two_step_extract(self, image: Image.Image) -> list[ContentBlock]:
         image = image.convert("RGB") if image.mode != "RGB" else image
-        width, height = image.size
-
         blocks = await self.aio_layout_detect(image)
-        block_images: list[Image.Image] = []
-        block_prompts: list[str] = []
-        block_indices: list[int] = []
-        for idx, block in enumerate(blocks):
-            if block.type in ("image", "list", "equation_block"):
-                continue  # Skip image blocks.
-
-            x1, y1, x2, y2 = block.bbox
-            scaled_bbox = (x1 * width, y1 * height, x2 * width, y2 * height)
-            block_image = image.crop(scaled_bbox)
-            if block.angle in [90, 180, 270]:
-                block_image = block_image.rotate(block.angle, expand=True)
-
-            block_images.append(self._resize_by_need(block_image))
-            block_prompt = self.prompts.get(block.type) or self.prompts["[default]"]
-            block_prompts.append(block_prompt)
-            block_indices.append(idx)
-
-        outputs = await self.client.aio_batch_predict(block_images, block_prompts)
-        for idx, output in zip(block_indices, outputs):
-            block = blocks[idx]
-            if block.type == "table":
-                output = convert_otsl_to_html(output)
-            block.content = output
-
-        blocks = _post_process(
+        block_images, prompts, indices = self._prepare_for_extract(image, blocks)
+        outputs = await self.client.aio_batch_predict(block_images, prompts)
+        for idx, output in zip(indices, outputs):
+            blocks[idx].content = output
+        return _post_process(
             blocks,
             handle_equation_block=self.handle_equation_block,
             abandon_paratext=self.abandon_paratext,
         )
-        return blocks
 
-    def batch_two_step_extract(
-        self,
-        images: list[Image.Image],
-        max_concurrency: int = 100,
-    ) -> list[list[ContentBlock]]:
+    def concurrent_two_step_extract(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = None
 
-        task = self.aio_batch_two_step_extract(
-            images=images,
-            max_concurrency=max_concurrency,
-        )
+        task = self.aio_concurrent_two_step_extract(images)
 
         if loop is not None:
             return loop.run_until_complete(task)
         else:
             return asyncio.run(task)
 
-    async def aio_batch_two_step_extract(
-        self,
-        images: list[Image.Image],
-        max_concurrency: int = 100,
-    ) -> list[list[ContentBlock]]:
-        semaphore = asyncio.Semaphore(max_concurrency)
+    async def aio_concurrent_two_step_extract(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
+        semaphore = asyncio.Semaphore(self.max_concurrency)
         outputs = [[]] * len(images)
 
         async def predict_with_semaphore(idx: int, image: Image.Image):
@@ -401,5 +393,63 @@ class MinerUClient:
         for idx, image in enumerate(images):
             tasks.append(predict_with_semaphore(idx, image))
         await asyncio.gather(*tasks)
-
         return outputs
+
+    def stepping_two_step_extract(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
+        images = [im.convert("RGB") if im.mode != "RGB" else im for im in images]
+        blocks_list = self.batch_layout_detect(images)
+        all_images: list[Image.Image] = []
+        all_prompts: list[str] = []
+        all_indices: list[tuple[int, int]] = []
+        # TODO: CPU only, can be optimized with concurrency
+        for img_idx, (image, blocks) in enumerate(zip(images, blocks_list)):
+            block_images, prompts, indices = self._prepare_for_extract(image, blocks)
+            all_images.extend(block_images)
+            all_prompts.extend(prompts)
+            all_indices.extend([(img_idx, idx) for idx in indices])
+        outputs = self.client.batch_predict(all_images, all_prompts)
+        for (img_idx, idx), output in zip(all_indices, outputs):
+            blocks_list[img_idx][idx].content = output
+        return [
+            _post_process(
+                blocks,
+                handle_equation_block=self.handle_equation_block,
+                abandon_paratext=self.abandon_paratext,
+            )
+            for blocks in blocks_list
+        ]
+
+    async def aio_stepping_two_step_extract(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
+        images = [im.convert("RGB") if im.mode != "RGB" else im for im in images]
+        blocks_list = await self.aio_batch_layout_detect(images)
+        all_images: list[Image.Image] = []
+        all_prompts: list[str] = []
+        all_indices: list[tuple[int, int]] = []
+        for img_idx, (image, blocks) in enumerate(zip(images, blocks_list)):
+            block_images, prompts, indices = self._prepare_for_extract(image, blocks)
+            all_images.extend(block_images)
+            all_prompts.extend(prompts)
+            all_indices.extend([(img_idx, idx) for idx in indices])
+        outputs = await self.client.aio_batch_predict(all_images, all_prompts)
+        for (img_idx, idx), output in zip(all_indices, outputs):
+            blocks_list[img_idx][idx].content = output
+        return [
+            _post_process(
+                blocks,
+                handle_equation_block=self.handle_equation_block,
+                abandon_paratext=self.abandon_paratext,
+            )
+            for blocks in blocks_list
+        ]
+
+    def batch_two_step_extract(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
+        if self.batching_mode == "concurrent":
+            return self.concurrent_two_step_extract(images)
+        else:  # self.batching_mode == "stepping"
+            return self.stepping_two_step_extract(images)
+
+    async def aio_batch_two_step_extract(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
+        if self.batching_mode == "concurrent":
+            return await self.aio_concurrent_two_step_extract(images)
+        else:  # self.batching_mode == "stepping"
+            return await self.aio_stepping_two_step_extract(images)

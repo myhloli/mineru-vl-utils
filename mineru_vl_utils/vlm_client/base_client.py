@@ -7,6 +7,14 @@ DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
 DEFAULT_USER_PROMPT = "What is the text in the illustrate?"
 
 
+class RequestError(ValueError):
+    pass
+
+
+class ServerError(RuntimeError):
+    pass
+
+
 @dataclass
 class SamplingParams:
     temperature: float | None
@@ -144,6 +152,7 @@ def new_vlm_client(
     server_url: str | None = None,
     model=None,  # transformers model
     processor=None,  # transformers processor
+    vllm_llm=None,  # vllm.LLM model
     prompt: str = DEFAULT_USER_PROMPT,
     system_prompt: str = DEFAULT_SYSTEM_PROMPT,
     temperature: float | None = None,
@@ -200,7 +209,22 @@ def new_vlm_client(
         )
 
     elif backend == "vllm-engine":
-        raise NotImplementedError("vllm backend is not implemented yet.")
-    
+        from .vllm_engine_client import VllmEngineVlmClient
+
+        return VllmEngineVlmClient(
+            vllm_llm=vllm_llm,
+            prompt=prompt,
+            system_prompt=system_prompt,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            repetition_penalty=repetition_penalty,
+            presence_penalty=presence_penalty,
+            no_repeat_ngram_size=no_repeat_ngram_size,
+            max_new_tokens=max_new_tokens,
+            text_before_image=text_before_image,
+            allow_truncated_content=allow_truncated_content,
+        )
+
     else:
         raise ValueError(f"Unsupported backend: {backend}")

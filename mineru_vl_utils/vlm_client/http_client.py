@@ -2,8 +2,6 @@ import asyncio
 import json
 import os
 import re
-from base64 import b64encode
-from io import BytesIO
 from typing import AsyncIterable, Iterable, List, Optional, Set, Tuple, Union
 
 import httpx
@@ -12,18 +10,12 @@ from PIL import Image
 from .base_client import (
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_USER_PROMPT,
+    RequestError,
     SamplingParams,
+    ServerError,
     VlmClient,
 )
-from .utils import aio_load_resource, load_resource
-
-
-class RequestError(ValueError):
-    pass
-
-
-class ServerError(RuntimeError):
-    pass
+from .utils import aio_load_resource, get_image_data_url, get_png_bytes, load_resource
 
 
 def _get_env(key: str, default: str | None = None) -> str:
@@ -33,28 +25,6 @@ def _get_env(key: str, default: str | None = None) -> str:
     if default is not None:
         return default
     raise ValueError(f"Environment variable {key} is not set.")
-
-
-def _get_png_bytes(image: Image.Image) -> bytes:
-    buffer = BytesIO()
-    image.save(buffer, format="PNG")
-    return buffer.getvalue()
-
-
-def _get_image_format(image_bytes: bytes) -> str:
-    if image_bytes.startswith(b"\xff\xd8\xff"):
-        return "jpeg"
-    if image_bytes.startswith(b"\x89PNG"):
-        return "png"
-    if image_bytes.startswith(b"GIF8"):
-        return "gif"
-    if image_bytes.startswith(b"BM"):
-        return "bmp"
-    if image_bytes[0:4] == b"RIFF" and image_bytes[8:12] == b"WEBP":
-        return "webp"
-    if image_bytes.startswith(b"II\x2a\x00") or image_bytes.startswith(b"MM\x00\x2a"):
-        return "tiff"
-    raise RequestError("Unsupported image format.")
 
 
 class HttpVlmClient(VlmClient):
@@ -162,12 +132,6 @@ class HttpVlmClient(VlmClient):
             raise RequestError(f"Model name is empty in response from {base_url}. Response body: {response.text}")
         return model_name
 
-    def build_image_url(self, image: bytes, image_format: str | None) -> str:
-        image_base64 = b64encode(image).decode("utf-8")
-        if not image_format:
-            image_format = _get_image_format(image)
-        return f"data:image/{image_format};base64,{image_base64}"
-
     def build_request_body(
         self,
         system_prompt: str,
@@ -176,7 +140,7 @@ class HttpVlmClient(VlmClient):
         sampling_params: SamplingParams,
         image_format: str | None,
     ) -> dict:
-        image_url = self.build_image_url(image, image_format)
+        image_url = get_image_data_url(image, image_format)
         prompt = prompt or self.prompt
         messages = []
         if system_prompt:
@@ -288,7 +252,7 @@ class HttpVlmClient(VlmClient):
         if isinstance(image, str):
             image = load_resource(image)
         if isinstance(image, Image.Image):
-            image = _get_png_bytes(image)
+            image = get_png_bytes(image)
             image_format = "png"
 
         request_body = self.build_request_body(
@@ -380,7 +344,7 @@ class HttpVlmClient(VlmClient):
         if isinstance(image, str):
             image = load_resource(image)
         if isinstance(image, Image.Image):
-            image = _get_png_bytes(image)
+            image = get_png_bytes(image)
             image_format = "png"
 
         request_body = self.build_request_body(
@@ -475,7 +439,7 @@ class HttpVlmClient(VlmClient):
         if isinstance(image, str):
             image = await aio_load_resource(image)
         if isinstance(image, Image.Image):
-            image = _get_png_bytes(image)
+            image = get_png_bytes(image)
             image_format = "png"
 
         request_body = self.build_request_body(
