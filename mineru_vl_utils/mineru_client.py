@@ -141,6 +141,7 @@ class MinerUClient:
         server_url: str | None = None,
         model=None,  # transformers model
         processor=None,  # transformers processor
+        model_path: str | None = None,
         prompts: dict[str, str] = DEFAULT_PROMPTS,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         temperature: float | None = DEFAULT_TEMPERATURE,
@@ -158,6 +159,31 @@ class MinerUClient:
         http_timeout: int = 600,
         debug: bool = False,
     ) -> None:
+        if backend == "transformers":
+            if model is None or processor is None:
+                if not model_path:
+                    raise ValueError("model_path must be provided when model or processor is None.")
+
+                try:
+                    from transformers import (
+                        AutoProcessor,
+                        Qwen2VLForConditionalGeneration,
+                    )
+                except ImportError:
+                    raise ImportError("Please install transformers to use the transformers backend.")
+
+                if model is None:
+                    model = Qwen2VLForConditionalGeneration.from_pretrained(
+                        model_path,
+                        torch_dtype="auto",
+                        device_map="auto",
+                    )
+                if processor is None:
+                    processor = AutoProcessor.from_pretrained(
+                        model_path,
+                        use_fast=True,
+                    )
+
         self.client = new_vlm_client(
             backend=backend,
             model_name=model_name,
