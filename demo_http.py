@@ -108,7 +108,7 @@ test_image_paths = """
 
 if __name__ == "__main__":
     client = MinerUClient(
-        backend="http",
+        backend="http-client",
         model_name="mineru_dev_250903_2step",
         server_url="http://llm.bigdata.shlab.tech",
     )

@@ -139,7 +139,7 @@ class VlmClient:
 
 
 def new_vlm_client(
-    backend: Literal["http", "transformers", "vllm-engine"],
+    backend: Literal["http-client", "transformers", "vllm-engine"],
     model_name: str | None = None,
     server_url: str | None = None,
     model=None,  # transformers model
@@ -159,7 +159,7 @@ def new_vlm_client(
     debug: bool = False,
 ) -> VlmClient:
 
-    if backend == "http":
+    if backend == "http-client":
         from .http_client import HttpVlmClient
 
         return HttpVlmClient(

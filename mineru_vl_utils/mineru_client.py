@@ -136,7 +136,7 @@ def _post_process(
 class MinerUClient:
     def __init__(
         self,
-        backend: Literal["http", "transformers", "vllm-engine"],
+        backend: Literal["http-client", "transformers", "vllm-engine"],
         model_name: str | None = None,
         server_url: str | None = None,
         model=None,  # transformers model
