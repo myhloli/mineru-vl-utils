@@ -71,6 +71,7 @@ class MinerUClient:
         min_image_edge: int = 28,
         max_image_edge_ratio: float = 50,
         handle_equation_block: bool = True,
+        abandon_list: bool = False,
         abandon_paratext: bool = False,
         max_new_tokens: int | None = None,
         max_concurrency: int = 100,
@@ -143,9 +144,18 @@ class MinerUClient:
         self.min_image_edge = min_image_edge
         self.max_image_edge_ratio = max_image_edge_ratio
         self.handle_equation_block = handle_equation_block
+        self.abandon_list = abandon_list
         self.abandon_paratext = abandon_paratext
         self.max_concurrency = max_concurrency
         self.batching_mode = "concurrent" if backend == "http-client" else "stepping"
+
+    def _post_process(self, blocks: list[ContentBlock]) -> list[ContentBlock]:
+        return post_process(
+            blocks,
+            handle_equation_block=self.handle_equation_block,
+            abandon_list=self.abandon_list,
+            abandon_paratext=self.abandon_paratext,
+        )
 
     def _resize_by_need(self, image: Image.Image) -> Image.Image:
         edge_ratio = max(image.size) / min(image.size)
@@ -247,12 +257,7 @@ class MinerUClient:
             content = match.group(3)
             blocks.append(ContentBlock(ref_type, bbox, content=content))
             output = output[len(match.group(0)) :]
-        blocks = post_process(
-            blocks,
-            handle_equation_block=self.handle_equation_block,
-            abandon_paratext=self.abandon_paratext,
-        )
-        return blocks
+        return self._post_process(blocks)
 
     def two_step_extract(self, image: Image.Image) -> list[ContentBlock]:
         image = image.convert("RGB") if image.mode != "RGB" else image
@@ -261,11 +266,7 @@ class MinerUClient:
         outputs = self.client.batch_predict(block_images, prompts)
         for idx, output in zip(indices, outputs):
             blocks[idx].content = output
-        return post_process(
-            blocks,
-            handle_equation_block=self.handle_equation_block,
-            abandon_paratext=self.abandon_paratext,
-        )
+        return self._post_process(blocks)
 
     async def aio_two_step_extract(self, image: Image.Image) -> list[ContentBlock]:
         image = image.convert("RGB") if image.mode != "RGB" else image
@@ -274,11 +275,7 @@ class MinerUClient:
         outputs = await self.client.aio_batch_predict(block_images, prompts)
         for idx, output in zip(indices, outputs):
             blocks[idx].content = output
-        return post_process(
-            blocks,
-            handle_equation_block=self.handle_equation_block,
-            abandon_paratext=self.abandon_paratext,
-        )
+        return self._post_process(blocks)
 
     def concurrent_two_step_extract(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
         try:
@@ -323,14 +320,7 @@ class MinerUClient:
         outputs = self.client.batch_predict(all_images, all_prompts)
         for (img_idx, idx), output in zip(all_indices, outputs):
             blocks_list[img_idx][idx].content = output
-        return [
-            post_process(
-                blocks,
-                handle_equation_block=self.handle_equation_block,
-                abandon_paratext=self.abandon_paratext,
-            )
-            for blocks in blocks_list
-        ]
+        return [self._post_process(blocks) for blocks in blocks_list]
 
     async def aio_stepping_two_step_extract(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
         images = [im.convert("RGB") if im.mode != "RGB" else im for im in images]
@@ -346,14 +336,7 @@ class MinerUClient:
         outputs = await self.client.aio_batch_predict(all_images, all_prompts)
         for (img_idx, idx), output in zip(all_indices, outputs):
             blocks_list[img_idx][idx].content = output
-        return [
-            post_process(
-                blocks,
-                handle_equation_block=self.handle_equation_block,
-                abandon_paratext=self.abandon_paratext,
-            )
-            for blocks in blocks_list
-        ]
+        return [self._post_process(blocks) for blocks in blocks_list]
 
     def batch_two_step_extract(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
         if self.batching_mode == "concurrent":

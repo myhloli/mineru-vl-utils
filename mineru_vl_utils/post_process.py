@@ -35,6 +35,7 @@ def _combined_equations(equation_contents):
 def post_process(
     blocks: list[ContentBlock],
     handle_equation_block: bool,
+    abandon_list: bool,
     abandon_paratext: bool,
 ) -> list[ContentBlock]:
     for block in blocks:
@@ -81,7 +82,9 @@ def post_process(
                 )
             )
             continue
-        if block.type in ["list", "equation_block"]:
+        if block.type == "equation_block":
+            continue
+        if abandon_list and block.type == "list":
             continue
         if abandon_paratext and block.type in PARATEXT_TYPES:
             continue
