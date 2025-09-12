@@ -35,10 +35,15 @@ ANGLE_MAPPING = {
 }
 
 
-def _convert_bbox(bbox: Sequence[int] | Sequence[str]) -> list[float]:
-    x1, y1, x2, y2 = tuple(map(int, bbox))
+def _convert_bbox(bbox: Sequence[int] | Sequence[str]) -> list[float] | None:
+    bbox = tuple(map(int, bbox))
+    if any(coord < 0 or coord > 1000 for coord in bbox):
+        return None
+    x1, y1, x2, y2 = bbox
     x1, x2 = (x2, x1) if x2 < x1 else (x1, x2)
     y1, y2 = (y2, y1) if y2 < y1 else (y1, y2)
+    if x1 == x2 or y1 == y2:
+        return None
     return list(map(lambda num: num / 1000.0, (x1, y1, x2, y2)))
 
 
@@ -179,10 +184,12 @@ class MinerUClient:
         for line in output.split("\n"):
             match = re.match(_layout_re, line)
             if not match:
-                continue
+                continue  # Skip invalid lines
             x1, y1, x2, y2, ref_type, tail = match.groups()
-            ref_type = ref_type.lower()
             bbox = _convert_bbox((x1, y1, x2, y2))
+            if bbox is None:
+                continue  # Skip invalid bbox
+            ref_type = ref_type.lower()
             angle = _parse_angle(tail)
             blocks.append(ContentBlock(ref_type, bbox, angle=angle))
         return blocks
@@ -252,6 +259,8 @@ class MinerUClient:
             if box_match is None:
                 continue  # Invalid box format
             bbox = _convert_bbox(box_match.groups())
+            if bbox is None:
+                continue  # Invalid bbox format
             ref_type = match.group(2).replace("<|txt_contd|>", "").strip()
             ref_type = ref_type.lower()
             content = match.group(3)
