@@ -5,6 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mineru_vl_utils"
 version = "0.1.0"
+authors = [
+  { name="Jin Zhen Jiang", email="jinzhenjiang@pjlab.org.cn" },
+]
 description = "Utilities for Mineru Vision-Language models"
 readme = "README.md"
 requires-python = ">=3.10,<=3.13"
@@ -13,10 +16,19 @@ dependencies = [
   "pillow",
   "pydantic",
 ]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Operating System :: OS Independent",
+]
+license = "AGPL-3.0"
+license-files = ["LICEN[CS]E*"]
+
+[project.urls]
+Homepage = "https://github.com/opendatalab/mineru-vl-utils"
+Issues = "https://github.com/opendatalab/mineru-vl-utils/issues"
 
 [project.optional-dependencies]
 transformers = [
-  # fmt: off
   "torch>=2.6.0,<2.8.0",
   "transformers>=4.51.1,<5.0.0",
   "accelerate>=1.5.1",
@@ -24,9 +36,6 @@ transformers = [
 vllm = [
   "vllm==0.10.1.1",
 ]
-
-# [project.scripts]
-# ddp-cli = "ddp.cli.entry:main"
 
 [tool.black]
 line-length = 128
