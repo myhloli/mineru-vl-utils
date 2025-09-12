@@ -6,7 +6,7 @@ from PIL import Image
 from tqdm import tqdm
 
 from .base_client import DEFAULT_SYSTEM_PROMPT, DEFAULT_USER_PROMPT, VlmClient
-from .utils import aio_load_resource, load_resource
+from .utils import aio_load_resource, get_rgb_image, load_resource
 
 
 class TransformersVlmClient(VlmClient):
@@ -97,7 +97,7 @@ class TransformersVlmClient(VlmClient):
             image = load_resource(image)
         if not isinstance(image, Image.Image):
             image = Image.open(BytesIO(image))
-        image = image.convert("RGB")
+        image = get_rgb_image(image)
 
         prompt = prompt or self.prompt
         messages = []

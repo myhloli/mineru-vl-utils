@@ -7,6 +7,10 @@ DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
 DEFAULT_USER_PROMPT = "What is the text in the illustrate?"
 
 
+class UnsupportedError(NotImplementedError):
+    pass
+
+
 class RequestError(ValueError):
     pass
 
@@ -147,12 +151,13 @@ class VlmClient:
 
 
 def new_vlm_client(
-    backend: Literal["http-client", "transformers", "vllm-engine"],
+    backend: Literal["http-client", "transformers", "vllm-engine", "vllm-async-engine"],
     model_name: str | None = None,
     server_url: str | None = None,
     model=None,  # transformers model
     processor=None,  # transformers processor
     vllm_llm=None,  # vllm.LLM model
+    vllm_async_llm=None,  # vllm.v1.engine.async_llm.AsyncLLM instance
     prompt: str = DEFAULT_USER_PROMPT,
     system_prompt: str = DEFAULT_SYSTEM_PROMPT,
     temperature: float | None = None,
@@ -213,6 +218,25 @@ def new_vlm_client(
 
         return VllmEngineVlmClient(
             vllm_llm=vllm_llm,
+            prompt=prompt,
+            system_prompt=system_prompt,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            repetition_penalty=repetition_penalty,
+            presence_penalty=presence_penalty,
+            no_repeat_ngram_size=no_repeat_ngram_size,
+            max_new_tokens=max_new_tokens,
+            text_before_image=text_before_image,
+            allow_truncated_content=allow_truncated_content,
+        )
+
+    elif backend == "vllm-async-engine":
+        from .vllm_async_engine_client import VllmAsyncEngineVlmClient
+
+        return VllmAsyncEngineVlmClient(
+            vllm_async_llm=vllm_async_llm,
+            processor=processor,
             prompt=prompt,
             system_prompt=system_prompt,
             temperature=temperature,

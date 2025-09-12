@@ -71,3 +71,11 @@ def get_image_data_url(image_bytes: bytes, image_format: str | None) -> str:
     if not image_format:
         image_format = get_image_format(image_bytes)
     return f"data:image/{image_format};base64,{image_base64}"
+
+
+def get_rgb_image(image: Image.Image) -> Image.Image:
+    if image.mode == "P":
+        image = image.convert("RGBA")
+    if image.mode != "RGB":
+        image = image.convert("RGB")
+    return image
