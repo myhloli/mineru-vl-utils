@@ -225,15 +225,13 @@ class VllmAsyncEngineVlmClient(VlmClient):
         assert len(prompts) == len(images), "Length of prompts and images must match."
 
         semaphore = asyncio.Semaphore(max_concurrency)
-        outputs = [""] * len(images)
 
         async def predict_with_semaphore(
-            idx: int,
             image: str | bytes | Image.Image,
             prompt: str,
         ):
             async with semaphore:
-                output = await self.aio_predict(
+                return await self.aio_predict(
                     image=image,
                     prompt=prompt,
                     temperature=temperature,
@@ -244,11 +242,6 @@ class VllmAsyncEngineVlmClient(VlmClient):
                     no_repeat_ngram_size=no_repeat_ngram_size,
                     max_new_tokens=max_new_tokens,
                 )
-                outputs[idx] = output
 
-        tasks = []
-        for idx, (prompt, image) in enumerate(zip(prompts, images)):
-            tasks.append(predict_with_semaphore(idx, image, prompt))
-        await asyncio.gather(*tasks)
-
-        return outputs
+        tasks = [predict_with_semaphore(*args) for args in zip(images, prompts)]
+        return await asyncio.gather(*tasks)

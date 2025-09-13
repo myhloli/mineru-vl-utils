@@ -3,6 +3,7 @@ import re
 from base64 import b64decode, b64encode
 from io import BytesIO
 
+import aiofiles
 import httpx
 from PIL import Image
 
@@ -34,11 +35,11 @@ async def aio_load_resource(uri: str) -> bytes:
             response = await client.get(uri)
             return response.content
     if uri.startswith("file://"):
-        with open(uri[len("file://") :], "rb") as file:
-            return file.read()
+        async with aiofiles.open(uri[len("file://") :], "rb") as file:
+            return await file.read()
     if uri.lower().endswith(_file_exts):
-        with open(uri, "rb") as file:
-            return file.read()
+        async with aiofiles.open(uri, "rb") as file:
+            return await file.read()
     if re.match(_data_uri_regex, uri):
         return b64decode(uri.split(",")[1])
     return b64decode(uri)
