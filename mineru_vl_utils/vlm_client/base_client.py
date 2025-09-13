@@ -236,7 +236,6 @@ def new_vlm_client(
 
         return VllmAsyncEngineVlmClient(
             vllm_async_llm=vllm_async_llm,
-            processor=processor,
             prompt=prompt,
             system_prompt=system_prompt,
             temperature=temperature,

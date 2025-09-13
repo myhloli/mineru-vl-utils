@@ -28,7 +28,7 @@ def get_client_example1():
 def get_client_example2():
     """
     In this example, user only need to provide model_path.
-    The model and processor will be automatically initialized
+    The vllm.LLM instance will be automatically initialized
     with default parameters.
     """
     print("Creating client ...")

@@ -127,24 +127,17 @@ class MinerUClient:
                 vllm_llm = vllm.LLM(model_path)
 
         elif backend == "vllm-async-engine":
-            if vllm_async_llm is None or processor is None:
+            if vllm_async_llm is None:
                 if not model_path:
-                    raise ValueError("model_path must be provided when vllm_async_llm or processor is None.")
+                    raise ValueError("model_path must be provided when vllm_async_llm is None.")
 
-                if vllm_async_llm is None:
-                    try:
-                        from vllm.engine.arg_utils import AsyncEngineArgs
-                        from vllm.v1.engine.async_llm import AsyncLLM
-                    except ImportError:
-                        raise ImportError("Please install vllm to use the vllm-async-engine backend.")
-                    vllm_async_llm = AsyncLLM.from_engine_args(AsyncEngineArgs(model_path))
+                try:
+                    from vllm.engine.arg_utils import AsyncEngineArgs
+                    from vllm.v1.engine.async_llm import AsyncLLM
+                except ImportError:
+                    raise ImportError("Please install vllm to use the vllm-async-engine backend.")
 
-                if processor is None:
-                    try:
-                        from transformers import AutoProcessor
-                    except ImportError:
-                        raise ImportError("Please install transformers to use the vllm-async-engine backend.")
-                    processor = AutoProcessor.from_pretrained(model_path, use_fast=True)
+                vllm_async_llm = AsyncLLM.from_engine_args(AsyncEngineArgs(model_path))
 
         self.client = new_vlm_client(
             backend=backend,

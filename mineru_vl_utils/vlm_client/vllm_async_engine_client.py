@@ -19,7 +19,6 @@ class VllmAsyncEngineVlmClient(VlmClient):
     def __init__(
         self,
         vllm_async_llm,  # vllm.v1.engine.async_llm.AsyncLLM instance
-        processor,  # transformers processor (required by async client)
         prompt: str = DEFAULT_USER_PROMPT,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         temperature: float | None = None,
@@ -57,13 +56,9 @@ class VllmAsyncEngineVlmClient(VlmClient):
             raise ValueError("vllm_async_llm is None.")
         if not isinstance(vllm_async_llm, AsyncLLM):
             raise ValueError(f"vllm_async_llm must be an instance of {AsyncLLM}")
-        if not processor:
-            raise ValueError("Processor is None.")
-        if not hasattr(processor, "apply_chat_template"):
-            raise ValueError("Processor does not have apply_chat_template method.")
 
         self.vllm_async_llm = vllm_async_llm
-        self.processor = processor
+        self.tokenizer = vllm_async_llm.tokenizer.get_lora_tokenizer()
         self.model_max_length = vllm_async_llm.model_config.max_model_len
         self.VllmSamplingParams = SamplingParams
         self.VllmRequestOutputKind = RequestOutputKind
@@ -106,8 +101,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
         max_new_tokens: Optional[int] = None,
     ) -> str:
         raise UnsupportedError(
-            "Synchronous predict() is not supported in VllmAsyncEngineVlmClient. "
-            "Please use aio_predict() instead."
+            "Synchronous predict() is not supported in VllmAsyncEngineVlmClient. Please use aio_predict() instead."
         )
 
     def batch_predict(
@@ -146,8 +140,8 @@ class VllmAsyncEngineVlmClient(VlmClient):
             image = Image.open(BytesIO(image))
         image = get_rgb_image(image)
 
-        chat_prompt: str = self.processor.apply_chat_template(
-            self.build_messages(prompt),
+        chat_prompt: str = self.tokenizer.apply_chat_template(
+            self.build_messages(prompt),  # type: ignore
             tokenize=False,
             add_generation_prompt=True,
         )
