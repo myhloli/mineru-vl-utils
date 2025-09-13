@@ -1,10 +1,11 @@
 import asyncio
+from io import BytesIO
 from typing import List, Optional, Union
 
 from PIL import Image
 
 from .base_client import DEFAULT_SYSTEM_PROMPT, DEFAULT_USER_PROMPT, VlmClient
-from .utils import aio_load_resource, get_image_data_url, get_png_bytes, load_resource
+from .utils import aio_load_resource, get_rgb_image, load_resource
 
 
 class VllmEngineVlmClient(VlmClient):
@@ -48,16 +49,11 @@ class VllmEngineVlmClient(VlmClient):
             raise ValueError("vllm_llm must be an instance of vllm.LLM.")
 
         self.vllm_llm = vllm_llm
+        self.tokenizer = vllm_llm.get_tokenizer()
         self.model_max_length = vllm_llm.llm_engine.model_config.max_model_len
         self.VllmSamplingParams = SamplingParams
 
-    def build_messages(
-        self,
-        image: bytes,
-        prompt: str,
-        image_format: str | None,
-    ) -> list[dict]:
-        image_url = get_image_data_url(image, image_format)
+    def build_messages(self, prompt: str) -> list[dict]:
         prompt = prompt or self.prompt
         messages = []
         if self.system_prompt:
@@ -66,18 +62,17 @@ class VllmEngineVlmClient(VlmClient):
             prompt_1, prompt_2 = prompt.split("<image>", 1)
             user_messages = [
                 *([{"type": "text", "text": prompt_1}] if prompt_1.strip() else []),
-                # {"type": "image_url", "image_url": {"url": image_url}},
-                {"type": "image_url", "image_url": {"url": image_url, "detail": "high"}},
+                {"type": "image"},
                 *([{"type": "text", "text": prompt_2}] if prompt_2.strip() else []),
             ]
         elif self.text_before_image:
             user_messages = [
                 {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {"url": image_url}},
+                {"type": "image"},
             ]
         else:  # image before text, which is the default behavior.
             user_messages = [
-                {"type": "image_url", "image_url": {"url": image_url}},
+                {"type": "image"},
                 {"type": "text", "text": prompt},
             ]
         messages.append({"role": "user", "content": user_messages})
@@ -119,10 +114,8 @@ class VllmEngineVlmClient(VlmClient):
         no_repeat_ngram_size: Optional[int] = None,  # not supported by vllm
         max_new_tokens: Optional[int] = None,
     ) -> List[str]:
-        if not isinstance(prompts, list):
-            prompts = [prompts] * len(images)
-
-        assert len(prompts) == len(images), "Length of prompts and images must match."
+        if isinstance(prompts, list):
+            assert len(prompts) == len(images), "Length of prompts and images must match."
 
         sp = self.build_sampling_params(
             temperature=temperature,
@@ -164,18 +157,43 @@ class VllmEngineVlmClient(VlmClient):
             skip_special_tokens=False,
         )
 
-        messages_list = []
-        for image, prompt in zip(images, prompts):
-            image_format = None
+        image_objs: list[Image.Image] = []
+        for image in images:
             if isinstance(image, str):
                 image = load_resource(image)
-            if isinstance(image, Image.Image):
-                image = get_png_bytes(image)
-                image_format = "png"
-            messages = self.build_messages(image, prompt, image_format)
-            messages_list.append(messages)
+            if not isinstance(image, Image.Image):
+                image = Image.open(BytesIO(image))
+            image = get_rgb_image(image)
+            image_objs.append(image)
 
-        outputs = self.vllm_llm.chat(messages_list, sampling_params=vllm_sp)
+        if isinstance(prompts, str):
+            chat_prompts: list[str] = [
+                self.tokenizer.apply_chat_template(
+                    self.build_messages(prompts),  # type: ignore
+                    tokenize=False,
+                    add_generation_prompt=True,
+                )
+            ] * len(images)
+        else:  # isinstance(prompts, list)
+            chat_prompts: list[str] = [
+                self.tokenizer.apply_chat_template(
+                    self.build_messages(prompt),  # type: ignore
+                    tokenize=False,
+                    add_generation_prompt=True,
+                )
+                for prompt in prompts
+            ]
+
+        vllm_prompts = [
+            {"prompt": chat_prompt, "multi_modal_data": {"image": image}}
+            for chat_prompt, image in zip(chat_prompts, image_objs)
+        ]
+
+        outputs = self.vllm_llm.generate(
+            prompts=vllm_prompts,  # type: ignore
+            sampling_params=vllm_sp,
+        )
+
         return [output.outputs[0].text for output in outputs]
 
     async def aio_predict(
