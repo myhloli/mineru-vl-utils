@@ -1,6 +1,7 @@
 import asyncio
 import math
 import re
+from concurrent.futures import Executor
 from typing import Literal, Sequence
 
 from PIL import Image
@@ -8,6 +9,7 @@ from PIL import Image
 from .post_process import post_process
 from .structs import ContentBlock
 from .vlm_client import DEFAULT_SYSTEM_PROMPT, new_vlm_client
+from .vlm_client.utils import get_rgb_image
 
 _coord_re = r"^(\d+)\s+(\d+)\s+(\d+)\s+(\d+)$"
 _layout_re = r"^<\|box_start\|>(\d+)\s+(\d+)\s+(\d+)\s+(\d+)<\|box_end\|><\|ref_start\|>(\w+?)<\|ref_end\|>(.*)$"
@@ -81,6 +83,7 @@ class MinerUClient:
         abandon_paratext: bool = False,
         max_new_tokens: int | None = None,
         max_concurrency: int = 100,
+        executor: Executor | None = None,
         http_timeout: int = 600,
         debug: bool = False,
     ) -> None:
@@ -171,19 +174,12 @@ class MinerUClient:
         self.abandon_list = abandon_list
         self.abandon_paratext = abandon_paratext
         self.max_concurrency = max_concurrency
+        self.executor = executor
 
         if backend in ("http-client", "vllm-async-engine"):
             self.batching_mode = "concurrent"
         else:  # backend in ("transformers", "vllm-engine")
             self.batching_mode = "stepping"
-
-    def _post_process(self, blocks: list[ContentBlock]) -> list[ContentBlock]:
-        return post_process(
-            blocks,
-            handle_equation_block=self.handle_equation_block,
-            abandon_list=self.abandon_list,
-            abandon_paratext=self.abandon_paratext,
-        )
 
     def _resize_by_need(self, image: Image.Image) -> Image.Image:
         edge_ratio = max(image.size) / min(image.size)
@@ -200,6 +196,11 @@ class MinerUClient:
             scale = self.min_image_edge / min(image.size)
             new_w, new_h = round(image.width * scale), round(image.height * scale)
             image = image.resize((new_w, new_h), Image.Resampling.BICUBIC)
+        return image
+
+    def _prepare_for_layout(self, image: Image.Image) -> Image.Image:
+        image = get_rgb_image(image)
+        image = image.resize(self.layout_image_size, Image.Resampling.BICUBIC)
         return image
 
     def _parse_layout_output(self, output: str) -> list[ContentBlock]:
@@ -222,6 +223,7 @@ class MinerUClient:
         image: Image.Image,
         blocks: list[ContentBlock],
     ) -> tuple[list[Image.Image], list[str], list[int]]:
+        image = get_rgb_image(image)
         width, height = image.size
         block_images: list[Image.Image] = []
         prompts: list[str] = []
@@ -240,36 +242,83 @@ class MinerUClient:
             indices.append(idx)
         return block_images, prompts, indices
 
+    def _post_process(self, blocks: list[ContentBlock]) -> list[ContentBlock]:
+        return post_process(
+            blocks,
+            handle_equation_block=self.handle_equation_block,
+            abandon_list=self.abandon_list,
+            abandon_paratext=self.abandon_paratext,
+        )
+
+    def _batch_prepare_for_layout(self, images: list[Image.Image]) -> list[Image.Image]:
+        if self.executor is None:
+            return [self._prepare_for_layout(im) for im in images]
+        return list(self.executor.map(self._prepare_for_layout, images))
+
+    def _batch_parse_layout_output(self, outputs: list[str]) -> list[list[ContentBlock]]:
+        if self.executor is None:
+            return [self._parse_layout_output(output) for output in outputs]
+        return list(self.executor.map(self._parse_layout_output, outputs))
+
+    def _batch_prepare_for_extract(
+        self,
+        images: list[Image.Image],
+        blocks_list: list[list[ContentBlock]],
+    ) -> list[tuple[list[Image.Image], list[str], list[int]]]:
+        if self.executor is None:
+            return [self._prepare_for_extract(im, bls) for im, bls in zip(images, blocks_list)]
+        return list(self.executor.map(self._prepare_for_extract, images, blocks_list))
+
+    def _batch_post_process(self, blocks_list: list[list[ContentBlock]]) -> list[list[ContentBlock]]:
+        if self.executor is None:
+            return [self._post_process(blocks) for blocks in blocks_list]
+        return list(self.executor.map(self._post_process, blocks_list))
+
+    async def _aio_prepare_for_layout(self, image: Image.Image) -> Image.Image:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self.executor, self._prepare_for_layout, image)
+
+    async def _aio_parse_layout_output(self, output: str) -> list[ContentBlock]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self.executor, self._parse_layout_output, output)
+
+    async def _aio_prepare_for_extract(
+        self,
+        image: Image.Image,
+        blocks: list[ContentBlock],
+    ) -> tuple[list[Image.Image], list[str], list[int]]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self.executor, self._prepare_for_extract, image, blocks)
+
+    async def _aio_post_process(self, blocks: list[ContentBlock]) -> list[ContentBlock]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self.executor, self._post_process, blocks)
+
     def layout_detect(self, image: Image.Image) -> list[ContentBlock]:
-        image = image.convert("RGB") if image.mode != "RGB" else image
-        image = image.resize(self.layout_image_size, Image.Resampling.BICUBIC)
+        image = self._prepare_for_layout(image)
         prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
         output = self.client.predict(image, prompt)
         return self._parse_layout_output(output)
 
     def batch_layout_detect(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
-        images = [im.convert("RGB") if im.mode != "RGB" else im for im in images]
-        images = [im.resize(self.layout_image_size, Image.Resampling.BICUBIC) for im in images]
+        images = self._batch_prepare_for_layout(images)
         prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
         outputs = self.client.batch_predict(images, prompt)
-        return [self._parse_layout_output(output) for output in outputs]
+        return self._batch_parse_layout_output(outputs)
 
     async def aio_layout_detect(self, image: Image.Image) -> list[ContentBlock]:
-        image = image.convert("RGB") if image.mode != "RGB" else image
-        image = image.resize(self.layout_image_size, Image.Resampling.BICUBIC)
+        image = await self._aio_prepare_for_layout(image)
         prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
         output = await self.client.aio_predict(image, prompt)
-        return self._parse_layout_output(output)
+        return await self._aio_parse_layout_output(output)
 
     async def aio_batch_layout_detect(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
-        images = [im.convert("RGB") if im.mode != "RGB" else im for im in images]
-        images = [im.resize(self.layout_image_size, Image.Resampling.BICUBIC) for im in images]
+        images = await asyncio.gather(*[self._aio_prepare_for_layout(im) for im in images])
         prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
         outputs = await self.client.aio_batch_predict(images, prompt)
-        return [self._parse_layout_output(output) for output in outputs]
+        return await asyncio.gather(*[self._aio_parse_layout_output(out) for out in outputs])
 
     def one_step_extract(self, image: Image.Image) -> list[ContentBlock]:
-        image = image.convert("RGB") if image.mode != "RGB" else image
         prompt = self.prompts.get("[parsing]") or self.prompts["[default]"]
         output = self.client.predict(image, prompt)
         blocks: list[ContentBlock] = []
@@ -292,7 +341,6 @@ class MinerUClient:
         return self._post_process(blocks)
 
     def two_step_extract(self, image: Image.Image) -> list[ContentBlock]:
-        image = image.convert("RGB") if image.mode != "RGB" else image
         blocks = self.layout_detect(image)
         block_images, prompts, indices = self._prepare_for_extract(image, blocks)
         outputs = self.client.batch_predict(block_images, prompts)
@@ -301,13 +349,12 @@ class MinerUClient:
         return self._post_process(blocks)
 
     async def aio_two_step_extract(self, image: Image.Image) -> list[ContentBlock]:
-        image = image.convert("RGB") if image.mode != "RGB" else image
         blocks = await self.aio_layout_detect(image)
-        block_images, prompts, indices = self._prepare_for_extract(image, blocks)
+        block_images, prompts, indices = await self._aio_prepare_for_extract(image, blocks)
         outputs = await self.client.aio_batch_predict(block_images, prompts)
         for idx, output in zip(indices, outputs):
             blocks[idx].content = output
-        return self._post_process(blocks)
+        return await self._aio_post_process(blocks)
 
     def concurrent_two_step_extract(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
         try:
@@ -324,51 +371,43 @@ class MinerUClient:
 
     async def aio_concurrent_two_step_extract(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
         semaphore = asyncio.Semaphore(self.max_concurrency)
-        outputs = [[]] * len(images)
 
-        async def predict_with_semaphore(idx: int, image: Image.Image):
+        async def extract_with_semaphore(image: Image.Image):
             async with semaphore:
-                output = await self.aio_two_step_extract(image=image)
-                outputs[idx] = output
+                return await self.aio_two_step_extract(image=image)
 
-        tasks = []
-        for idx, image in enumerate(images):
-            tasks.append(predict_with_semaphore(idx, image))
-        await asyncio.gather(*tasks)
-        return outputs
+        return await asyncio.gather(*[extract_with_semaphore(im) for im in images])
 
     def stepping_two_step_extract(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
-        images = [im.convert("RGB") if im.mode != "RGB" else im for im in images]
         blocks_list = self.batch_layout_detect(images)
         all_images: list[Image.Image] = []
         all_prompts: list[str] = []
         all_indices: list[tuple[int, int]] = []
-        # TODO: CPU only, can be optimized with concurrency
-        for img_idx, (image, blocks) in enumerate(zip(images, blocks_list)):
-            block_images, prompts, indices = self._prepare_for_extract(image, blocks)
+        prepared_inputs = self._batch_prepare_for_extract(images, blocks_list)
+        for img_idx, (block_images, prompts, indices) in enumerate(prepared_inputs):
             all_images.extend(block_images)
             all_prompts.extend(prompts)
             all_indices.extend([(img_idx, idx) for idx in indices])
         outputs = self.client.batch_predict(all_images, all_prompts)
         for (img_idx, idx), output in zip(all_indices, outputs):
             blocks_list[img_idx][idx].content = output
-        return [self._post_process(blocks) for blocks in blocks_list]
+        return self._batch_post_process(blocks_list)
 
     async def aio_stepping_two_step_extract(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
-        images = [im.convert("RGB") if im.mode != "RGB" else im for im in images]
         blocks_list = await self.aio_batch_layout_detect(images)
         all_images: list[Image.Image] = []
         all_prompts: list[str] = []
         all_indices: list[tuple[int, int]] = []
-        for img_idx, (image, blocks) in enumerate(zip(images, blocks_list)):
-            block_images, prompts, indices = self._prepare_for_extract(image, blocks)
+        tasks = [self._aio_prepare_for_extract(im, bls) for im, bls in zip(images, blocks_list)]
+        prepared_inputs = await asyncio.gather(*tasks)
+        for img_idx, (block_images, prompts, indices) in enumerate(prepared_inputs):
             all_images.extend(block_images)
             all_prompts.extend(prompts)
             all_indices.extend([(img_idx, idx) for idx in indices])
         outputs = await self.client.aio_batch_predict(all_images, all_prompts)
         for (img_idx, idx), output in zip(all_indices, outputs):
             blocks_list[img_idx][idx].content = output
-        return [self._post_process(blocks) for blocks in blocks_list]
+        return await asyncio.gather(*[self._aio_post_process(blocks) for blocks in blocks_list])
 
     def batch_two_step_extract(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
         if self.batching_mode == "concurrent":
