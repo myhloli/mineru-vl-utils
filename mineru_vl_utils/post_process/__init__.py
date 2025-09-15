@@ -18,15 +18,16 @@ def post_process(
     handle_equation_block: bool,
     abandon_list: bool,
     abandon_paratext: bool,
+    debug: bool = False,
 ) -> list[ContentBlock]:
     for block in blocks:
         if block.type == "table" and block.content:
             block.content = convert_otsl_to_html(block.content)
         if block.type == "equation" and block.content:
-            block.content = try_match_equation_left_right(block.content)
+            block.content = try_match_equation_left_right(block.content, debug=debug)
 
     if handle_equation_block:
-        blocks = do_handle_equation_block(blocks)
+        blocks = do_handle_equation_block(blocks, debug=debug)
 
     out_blocks: list[ContentBlock] = []
     for block in blocks:

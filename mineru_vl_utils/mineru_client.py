@@ -66,6 +66,7 @@ class MinerUClientHelper:
         handle_equation_block: bool,
         abandon_list: bool,
         abandon_paratext: bool,
+        debug: bool,
     ) -> None:
         self.prompts = prompts
         self.layout_image_size = layout_image_size
@@ -74,6 +75,7 @@ class MinerUClientHelper:
         self.handle_equation_block = handle_equation_block
         self.abandon_list = abandon_list
         self.abandon_paratext = abandon_paratext
+        self.debug = debug
 
     def resize_by_need(self, image: Image.Image) -> Image.Image:
         edge_ratio = max(image.size) / min(image.size)
@@ -142,6 +144,7 @@ class MinerUClientHelper:
             handle_equation_block=self.handle_equation_block,
             abandon_list=self.abandon_list,
             abandon_paratext=self.abandon_paratext,
+            debug=self.debug,
         )
 
     def batch_prepare_for_layout(
@@ -328,6 +331,7 @@ class MinerUClient:
             handle_equation_block=handle_equation_block,
             abandon_list=abandon_list,
             abandon_paratext=abandon_paratext,
+            debug=debug,
         )
         self.prompts = prompts
         self.max_concurrency = max_concurrency

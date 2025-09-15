@@ -334,9 +334,17 @@ def fix_left_right_mismatch(latex: str):
     return fixed_latex
 
 
-def try_match_equation_left_right(latex: str) -> str:
+def try_match_equation_left_right(latex: str, debug: bool = False) -> str:
     if check_left_right(latex):
         return latex
+
     if not check_align(latex):
         return latex
-    return fix_left_right_mismatch(latex)
+
+    fixed_latex = fix_left_right_mismatch(latex)
+
+    if debug:
+        print(f"Trying to fix left-right mismatch in equation: {latex}")
+        print(f"Fixed equation: {fixed_latex}")
+
+    return fixed_latex

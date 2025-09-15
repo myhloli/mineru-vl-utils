@@ -22,7 +22,10 @@ def _combined_equations(equation_contents):
     return combined_content
 
 
-def do_handle_equation_block(blocks: list[ContentBlock]):
+def do_handle_equation_block(
+    blocks: list[ContentBlock],
+    debug: bool = False,
+) -> list[ContentBlock]:
     sem_equation_indices: list[int] = []
     span_equation_indices: list[int] = []
     for idx, block in enumerate(blocks):
@@ -44,6 +47,10 @@ def do_handle_equation_block(blocks: list[ContentBlock]):
         ]
         if len(covered_span_indices) > 1:
             sem_equation_spans[sem_idx] = covered_span_indices
+
+    if debug:
+        for idx, span_indices in sem_equation_spans.items():
+            print(f"Combined equation_block at idx {idx} with spans at {span_indices}")
 
     out_blocks: list[ContentBlock] = []
     for idx in range(len(blocks)):
