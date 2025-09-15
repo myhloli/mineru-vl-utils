@@ -1,14 +1,4 @@
-from .otsl2html import convert_otsl_to_html
-from .structs import ContentBlock
-
-PARATEXT_TYPES = {
-    "header",
-    "footer",
-    "page_number",
-    "aside_text",
-    "page_footnote",
-    "unknown",
-}
+from ..structs import ContentBlock
 
 
 def _bbox_cover_ratio(boxA, boxB):
@@ -32,37 +22,28 @@ def _combined_equations(equation_contents):
     return combined_content
 
 
-def post_process(
-    blocks: list[ContentBlock],
-    handle_equation_block: bool,
-    abandon_list: bool,
-    abandon_paratext: bool,
-) -> list[ContentBlock]:
-    for block in blocks:
-        if block.type == "table" and block.content:
-            block.content = convert_otsl_to_html(block.content)
+def do_handle_equation_block(blocks: list[ContentBlock]):
+    sem_equation_indices: list[int] = []
+    span_equation_indices: list[int] = []
+    for idx, block in enumerate(blocks):
+        if block.type == "equation_block":
+            sem_equation_indices.append(idx)
+        elif block.type == "equation":
+            span_equation_indices.append(idx)
 
     sem_equation_spans: dict[int, list[int]] = {}
-    if handle_equation_block:
-        sem_equation_indices: list[int] = []
-        span_equation_indices: list[int] = []
-        for idx, block in enumerate(blocks):
-            if block.type == "equation_block":
-                sem_equation_indices.append(idx)
-            elif block.type == "equation":
-                span_equation_indices.append(idx)
-        for sem_idx in sem_equation_indices:
-            covered_span_indices = [
-                span_idx
-                for span_idx in span_equation_indices
-                if _bbox_cover_ratio(
-                    blocks[sem_idx].bbox,
-                    blocks[span_idx].bbox,
-                )
-                > 0.9
-            ]
-            if len(covered_span_indices) > 1:
-                sem_equation_spans[sem_idx] = covered_span_indices
+    for sem_idx in sem_equation_indices:
+        covered_span_indices = [
+            span_idx
+            for span_idx in span_equation_indices
+            if _bbox_cover_ratio(
+                blocks[sem_idx].bbox,
+                blocks[span_idx].bbox,
+            )
+            > 0.9
+        ]
+        if len(covered_span_indices) > 1:
+            sem_equation_spans[sem_idx] = covered_span_indices
 
     out_blocks: list[ContentBlock] = []
     for idx in range(len(blocks)):
@@ -83,10 +64,6 @@ def post_process(
             )
             continue
         if block.type == "equation_block":
-            continue
-        if abandon_list and block.type == "list":
-            continue
-        if abandon_paratext and block.type in PARATEXT_TYPES:
             continue
         out_blocks.append(block)
     return out_blocks
