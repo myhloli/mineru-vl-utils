@@ -7,7 +7,7 @@ from typing import Literal, Sequence
 from PIL import Image
 
 from .post_process import post_process
-from .structs import ContentBlock
+from .structs import BLOCK_TYPES, ContentBlock
 from .vlm_client import DEFAULT_SYSTEM_PROMPT, new_vlm_client
 from .vlm_client.utils import get_rgb_image
 
@@ -110,6 +110,8 @@ class MinerUClientHelper:
             if bbox is None:
                 continue  # Skip invalid bbox
             ref_type = ref_type.lower()
+            if ref_type not in BLOCK_TYPES:
+                continue  # Skip unknown block types
             angle = _parse_angle(tail)
             blocks.append(ContentBlock(ref_type, bbox, angle=angle))
         return blocks
