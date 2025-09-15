@@ -25,6 +25,7 @@ class TransformersVlmClient(VlmClient):
         max_new_tokens: int | None = None,
         text_before_image: bool = False,
         allow_truncated_content: bool = False,
+        batch_size: int = 1,
     ):
         super().__init__(
             prompt=prompt,
@@ -39,6 +40,8 @@ class TransformersVlmClient(VlmClient):
             text_before_image=text_before_image,
             allow_truncated_content=allow_truncated_content,
         )
+        self.batch_size = max(1, batch_size)
+
         if not model:
             raise ValueError("Model is None.")
         if not hasattr(model, "generate"):
@@ -49,8 +52,45 @@ class TransformersVlmClient(VlmClient):
             raise ValueError("Processor does not have apply_chat_template method.")
         self.model = model
         self.processor = processor
-        self.eos_token_id = model.config.eos_token_id
         self.model_max_length = model.config.max_position_embeddings
+
+        skip_token_ids: set[int] = set()
+        for field in ["bos_token_id", "eos_token_id", "pad_token_id"]:
+            if hasattr(model.config, field):
+                token_id = getattr(model.config, field)
+                if isinstance(token_id, int):
+                    skip_token_ids.add(token_id)
+            if hasattr(processor.tokenizer, field):
+                token_id = getattr(processor.tokenizer, field)
+                if isinstance(token_id, int):
+                    skip_token_ids.add(token_id)
+
+        self.skip_token_ids = skip_token_ids
+
+    def build_messages(self, prompt: str) -> list[dict]:
+        prompt = prompt or self.prompt
+        messages = []
+        if self.system_prompt:
+            messages.append({"role": "system", "content": self.system_prompt})
+        if "<image>" in prompt:
+            prompt_1, prompt_2 = prompt.split("<image>", 1)
+            user_messages = [
+                *([{"type": "text", "text": prompt_1}] if prompt_1.strip() else []),
+                {"type": "image"},
+                *([{"type": "text", "text": prompt_2}] if prompt_2.strip() else []),
+            ]
+        elif self.text_before_image:
+            user_messages = [
+                {"type": "text", "text": prompt},
+                {"type": "image"},
+            ]
+        else:  # image before text, which is the default behavior.
+            user_messages = [
+                {"type": "image"},
+                {"type": "text", "text": prompt},
+            ]
+        messages.append({"role": "user", "content": user_messages})
+        return messages
 
     def predict(
         self,
@@ -65,6 +105,35 @@ class TransformersVlmClient(VlmClient):
         max_new_tokens: Optional[int] = None,
         **kwargs,
     ) -> str:
+        return self.batch_predict(
+            [image],  # type: ignore
+            [prompt],
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            repetition_penalty=repetition_penalty,
+            presence_penalty=presence_penalty,
+            no_repeat_ngram_size=no_repeat_ngram_size,
+            max_new_tokens=max_new_tokens,
+            **kwargs,
+        )[0]
+
+    def batch_predict(
+        self,
+        images: List[str] | List[bytes] | List[Image.Image],
+        prompts: Union[List[str], str] = "",
+        temperature: Optional[float] = None,
+        top_p: Optional[float] = None,
+        top_k: Optional[int] = None,
+        repetition_penalty: Optional[float] = None,
+        presence_penalty: Optional[float] = None,  # not supported by hf
+        no_repeat_ngram_size: Optional[int] = None,
+        max_new_tokens: Optional[int] = None,
+        **kwargs,
+    ) -> List[str]:
+        if isinstance(prompts, list):
+            assert len(prompts) == len(images), "Length of prompts and images must match."
+
         sp = self.build_sampling_params(
             temperature=temperature,
             top_p=top_p,
@@ -93,37 +162,63 @@ class TransformersVlmClient(VlmClient):
             generate_kwargs["max_length"] = self.model_max_length
         generate_kwargs["do_sample"] = do_sample
 
-        if isinstance(image, str):
-            image = load_resource(image)
-        if not isinstance(image, Image.Image):
-            image = Image.open(BytesIO(image))
-        image = get_rgb_image(image)
+        image_objs: list[Image.Image] = []
+        for image in images:
+            if isinstance(image, str):
+                image = load_resource(image)
+            if not isinstance(image, Image.Image):
+                image = Image.open(BytesIO(image))
+            image = get_rgb_image(image)
+            image_objs.append(image)
 
-        prompt = prompt or self.prompt
-        messages = []
-        if self.system_prompt:
-            messages.append({"role": "system", "content": self.system_prompt})
-        if "<image>" in prompt:
-            prompt_1, prompt_2 = prompt.split("<image>", 1)
-            user_messages = [
-                *([{"type": "text", "text": prompt_1}] if prompt_1.strip() else []),
-                {"type": "image"},
-                *([{"type": "text", "text": prompt_2}] if prompt_2.strip() else []),
+        if isinstance(prompts, str):
+            chat_prompts: list[str] = [
+                self.processor.apply_chat_template(
+                    self.build_messages(prompts),
+                    tokenize=False,
+                    add_generation_prompt=True,
+                )
+            ] * len(images)
+        else:  # isinstance(prompts, list)
+            chat_prompts: list[str] = [
+                self.processor.apply_chat_template(
+                    self.build_messages(prompt),
+                    tokenize=False,
+                    add_generation_prompt=True,
+                )
+                for prompt in prompts
             ]
-        elif self.text_before_image:
-            user_messages = [
-                {"type": "text", "text": prompt},
-                {"type": "image"},
-            ]
-        else:  # image before text, which is the default behavior.
-            user_messages = [
-                {"type": "image"},
-                {"type": "text", "text": prompt},
-            ]
-        messages.append({"role": "user", "content": user_messages})
 
-        text = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        inputs = self.processor(text=[text], images=[image], padding=True, return_tensors="pt")
+        outputs = []
+
+        with tqdm(total=len(images), desc="Predict") as progress_bar:
+            for i in range(0, len(images), self.batch_size):
+                batch_image_objs = image_objs[i : i + self.batch_size]
+                batch_chat_prompts = chat_prompts[i : i + self.batch_size]
+                batch_outputs = self._predict_one_batch(
+                    batch_image_objs,
+                    batch_chat_prompts,
+                    generate_kwargs,
+                    **kwargs,
+                )
+                outputs.extend(batch_outputs)
+                progress_bar.update(len(batch_image_objs))
+
+        return outputs
+
+    def _predict_one_batch(
+        self,
+        image_objs: List[Image.Image],
+        chat_prompts: List[str],
+        generate_kwargs: dict,
+        **kwargs,
+    ):
+        inputs = self.processor(
+            text=chat_prompts,
+            images=image_objs,
+            padding=True,
+            return_tensors="pt",
+        )
         inputs = inputs.to(device=self.model.device, dtype=self.model.dtype)
 
         output_ids = self.model.generate(
@@ -133,54 +228,17 @@ class TransformersVlmClient(VlmClient):
             **kwargs,
         )
 
+        output_ids = output_ids.cpu().tolist()
         output_ids = [ids[len(in_ids) :] for in_ids, ids in zip(inputs.input_ids, output_ids)]
-        output_ids = [ids[:-1] if ids[-1:] == self.eos_token_id else ids for ids in output_ids]
+        output_ids = [[id for id in ids if id not in self.skip_token_ids] for ids in output_ids]
 
-        output_text = self.processor.batch_decode(
+        output_texts = self.processor.batch_decode(
             output_ids,
             skip_special_tokens=False,
             clean_up_tokenization_spaces=False,
         )
 
-        return output_text[0]
-
-    def batch_predict(
-        self,
-        images: List[str] | List[bytes] | List[Image.Image],
-        prompts: Union[List[str], str] = "",
-        temperature: Optional[float] = None,
-        top_p: Optional[float] = None,
-        top_k: Optional[int] = None,
-        repetition_penalty: Optional[float] = None,
-        presence_penalty: Optional[float] = None,  # not supported by hf
-        no_repeat_ngram_size: Optional[int] = None,
-        max_new_tokens: Optional[int] = None,
-        batch_size: int = 1,
-        **kwargs,
-    ) -> List[str]:
-        if not isinstance(prompts, list):
-            prompts = [prompts] * len(images)
-
-        assert len(prompts) == len(images), "Length of prompts and images must match."
-
-        # TODO: use batch processing
-
-        outputs = []
-        for prompt, image in tqdm(zip(prompts, images), total=len(images), desc="Predict"):
-            output = self.predict(
-                image,
-                prompt,
-                temperature=temperature,
-                top_p=top_p,
-                top_k=top_k,
-                repetition_penalty=repetition_penalty,
-                presence_penalty=presence_penalty,
-                no_repeat_ngram_size=no_repeat_ngram_size,
-                max_new_tokens=max_new_tokens,
-                **kwargs,
-            )
-            outputs.append(output)
-        return outputs
+        return output_texts
 
     async def aio_predict(
         self,

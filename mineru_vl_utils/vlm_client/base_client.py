@@ -169,6 +169,7 @@ def new_vlm_client(
     max_new_tokens: int | None = None,
     text_before_image: bool = False,
     allow_truncated_content: bool = False,
+    batch_size: int = 1,
     http_timeout: int = 600,
     debug: bool = False,
 ) -> VlmClient:
@@ -211,6 +212,7 @@ def new_vlm_client(
             max_new_tokens=max_new_tokens,
             text_before_image=text_before_image,
             allow_truncated_content=allow_truncated_content,
+            batch_size=batch_size,
         )
 
     elif backend == "vllm-engine":

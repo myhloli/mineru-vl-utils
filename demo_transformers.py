@@ -1,3 +1,5 @@
+import time
+
 from mineru_vl_utils import MinerUClient
 from PIL import Image
 
@@ -57,5 +59,10 @@ image_path = "/share/jinzhenjiang/OmniDocBench/v1_0/docstructbench_00039896.1983
 image = Image.open(image_path).convert("RGB")
 
 print("Extracting ...")
+
+begin = time.time()
 output = client.two_step_extract(image)
+elapsed = time.time() - begin
+
+print(f"Time: {elapsed:.2f} s")
 print(output)

@@ -84,7 +84,8 @@ class MinerUClient:
         max_new_tokens: int | None = None,
         max_concurrency: int = 100,
         executor: Executor | None = None,
-        http_timeout: int = 600,
+        batch_size: int = 1,  # for transformers backend only
+        http_timeout: int = 600,  # for http-client backend only
         debug: bool = False,
     ) -> None:
         if backend == "transformers":
@@ -156,6 +157,7 @@ class MinerUClient:
             no_repeat_ngram_size=no_repeat_ngram_size,
             max_new_tokens=max_new_tokens,
             allow_truncated_content=True,  # Allow truncated content for MinerU
+            batch_size=batch_size,
             http_timeout=http_timeout,
             debug=debug,
         )
