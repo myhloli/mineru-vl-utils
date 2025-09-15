@@ -56,6 +56,165 @@ def _parse_angle(tail: str) -> Literal[None, 0, 90, 180, 270]:
     return None
 
 
+class MinerUClientHelper:
+    def __init__(
+        self,
+        prompts: dict[str, str],
+        layout_image_size: tuple[int, int],
+        min_image_edge: int,
+        max_image_edge_ratio: float,
+        handle_equation_block: bool,
+        abandon_list: bool,
+        abandon_paratext: bool,
+    ) -> None:
+        self.prompts = prompts
+        self.layout_image_size = layout_image_size
+        self.min_image_edge = min_image_edge
+        self.max_image_edge_ratio = max_image_edge_ratio
+        self.handle_equation_block = handle_equation_block
+        self.abandon_list = abandon_list
+        self.abandon_paratext = abandon_paratext
+
+    def resize_by_need(self, image: Image.Image) -> Image.Image:
+        edge_ratio = max(image.size) / min(image.size)
+        if edge_ratio > self.max_image_edge_ratio:
+            width, height = image.size
+            if width > height:
+                new_w, new_h = width, math.ceil(width / self.max_image_edge_ratio)
+            else:  # width < height
+                new_w, new_h = math.ceil(height / self.max_image_edge_ratio), height
+            new_image = Image.new(image.mode, (new_w, new_h), (255, 255, 255))
+            new_image.paste(image, (int((new_w - width) / 2), int((new_h - height) / 2)))
+            image = new_image
+        if min(image.size) < self.min_image_edge:
+            scale = self.min_image_edge / min(image.size)
+            new_w, new_h = round(image.width * scale), round(image.height * scale)
+            image = image.resize((new_w, new_h), Image.Resampling.BICUBIC)
+        return image
+
+    def prepare_for_layout(self, image: Image.Image) -> Image.Image:
+        image = get_rgb_image(image)
+        image = image.resize(self.layout_image_size, Image.Resampling.BICUBIC)
+        return image
+
+    def parse_layout_output(self, output: str) -> list[ContentBlock]:
+        blocks: list[ContentBlock] = []
+        for line in output.split("\n"):
+            match = re.match(_layout_re, line)
+            if not match:
+                continue  # Skip invalid lines
+            x1, y1, x2, y2, ref_type, tail = match.groups()
+            bbox = _convert_bbox((x1, y1, x2, y2))
+            if bbox is None:
+                continue  # Skip invalid bbox
+            ref_type = ref_type.lower()
+            angle = _parse_angle(tail)
+            blocks.append(ContentBlock(ref_type, bbox, angle=angle))
+        return blocks
+
+    def prepare_for_extract(
+        self,
+        image: Image.Image,
+        blocks: list[ContentBlock],
+    ) -> tuple[list[Image.Image], list[str], list[int]]:
+        image = get_rgb_image(image)
+        width, height = image.size
+        block_images: list[Image.Image] = []
+        prompts: list[str] = []
+        indices: list[int] = []
+        for idx, block in enumerate(blocks):
+            if block.type in ("image", "list", "equation_block"):
+                continue  # Skip image blocks.
+            x1, y1, x2, y2 = block.bbox
+            scaled_bbox = (x1 * width, y1 * height, x2 * width, y2 * height)
+            block_image = image.crop(scaled_bbox)
+            if block.angle in [90, 180, 270]:
+                block_image = block_image.rotate(block.angle, expand=True)
+            block_images.append(self.resize_by_need(block_image))
+            prompt = self.prompts.get(block.type) or self.prompts["[default]"]
+            prompts.append(prompt)
+            indices.append(idx)
+        return block_images, prompts, indices
+
+    def post_process(self, blocks: list[ContentBlock]) -> list[ContentBlock]:
+        return post_process(
+            blocks,
+            handle_equation_block=self.handle_equation_block,
+            abandon_list=self.abandon_list,
+            abandon_paratext=self.abandon_paratext,
+        )
+
+    def batch_prepare_for_layout(
+        self,
+        executor: Executor | None,
+        images: list[Image.Image],
+    ) -> list[Image.Image]:
+        if executor is None:
+            return [self.prepare_for_layout(im) for im in images]
+        return list(executor.map(self.prepare_for_layout, images))
+
+    def batch_parse_layout_output(
+        self,
+        executor: Executor | None,
+        outputs: list[str],
+    ) -> list[list[ContentBlock]]:
+        if executor is None:
+            return [self.parse_layout_output(output) for output in outputs]
+        return list(executor.map(self.parse_layout_output, outputs))
+
+    def batch_prepare_for_extract(
+        self,
+        executor: Executor | None,
+        images: list[Image.Image],
+        blocks_list: list[list[ContentBlock]],
+    ) -> list[tuple[list[Image.Image], list[str], list[int]]]:
+        if executor is None:
+            return [self.prepare_for_extract(im, bls) for im, bls in zip(images, blocks_list)]
+        return list(executor.map(self.prepare_for_extract, images, blocks_list))
+
+    def batch_post_process(
+        self,
+        executor: Executor | None,
+        blocks_list: list[list[ContentBlock]],
+    ) -> list[list[ContentBlock]]:
+        if executor is None:
+            return [self.post_process(blocks) for blocks in blocks_list]
+        return list(executor.map(self.post_process, blocks_list))
+
+    async def aio_prepare_for_layout(
+        self,
+        executor: Executor | None,
+        image: Image.Image,
+    ) -> Image.Image:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(executor, self.prepare_for_layout, image)
+
+    async def aio_parse_layout_output(
+        self,
+        executor: Executor | None,
+        output: str,
+    ) -> list[ContentBlock]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(executor, self.parse_layout_output, output)
+
+    async def aio_prepare_for_extract(
+        self,
+        executor: Executor | None,
+        image: Image.Image,
+        blocks: list[ContentBlock],
+    ) -> tuple[list[Image.Image], list[str], list[int]]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(executor, self.prepare_for_extract, image, blocks)
+
+    async def aio_post_process(
+        self,
+        executor: Executor | None,
+        blocks: list[ContentBlock],
+    ) -> list[ContentBlock]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(executor, self.post_process, blocks)
+
+
 class MinerUClient:
     def __init__(
         self,
@@ -161,13 +320,16 @@ class MinerUClient:
             http_timeout=http_timeout,
             debug=debug,
         )
+        self.helper = MinerUClientHelper(
+            prompts=prompts,
+            layout_image_size=layout_image_size,
+            min_image_edge=min_image_edge,
+            max_image_edge_ratio=max_image_edge_ratio,
+            handle_equation_block=handle_equation_block,
+            abandon_list=abandon_list,
+            abandon_paratext=abandon_paratext,
+        )
         self.prompts = prompts
-        self.layout_image_size = layout_image_size
-        self.min_image_edge = min_image_edge
-        self.max_image_edge_ratio = max_image_edge_ratio
-        self.handle_equation_block = handle_equation_block
-        self.abandon_list = abandon_list
-        self.abandon_paratext = abandon_paratext
         self.max_concurrency = max_concurrency
         self.executor = executor
 
@@ -176,142 +338,29 @@ class MinerUClient:
         else:  # backend in ("transformers", "vllm-engine")
             self.batching_mode = "stepping"
 
-    def _resize_by_need(self, image: Image.Image) -> Image.Image:
-        edge_ratio = max(image.size) / min(image.size)
-        if edge_ratio > self.max_image_edge_ratio:
-            width, height = image.size
-            if width > height:
-                new_w, new_h = width, math.ceil(width / self.max_image_edge_ratio)
-            else:  # width < height
-                new_w, new_h = math.ceil(height / self.max_image_edge_ratio), height
-            new_image = Image.new(image.mode, (new_w, new_h), (255, 255, 255))
-            new_image.paste(image, (int((new_w - width) / 2), int((new_h - height) / 2)))
-            image = new_image
-        if min(image.size) < self.min_image_edge:
-            scale = self.min_image_edge / min(image.size)
-            new_w, new_h = round(image.width * scale), round(image.height * scale)
-            image = image.resize((new_w, new_h), Image.Resampling.BICUBIC)
-        return image
-
-    def _prepare_for_layout(self, image: Image.Image) -> Image.Image:
-        image = get_rgb_image(image)
-        image = image.resize(self.layout_image_size, Image.Resampling.BICUBIC)
-        return image
-
-    def _parse_layout_output(self, output: str) -> list[ContentBlock]:
-        blocks: list[ContentBlock] = []
-        for line in output.split("\n"):
-            match = re.match(_layout_re, line)
-            if not match:
-                continue  # Skip invalid lines
-            x1, y1, x2, y2, ref_type, tail = match.groups()
-            bbox = _convert_bbox((x1, y1, x2, y2))
-            if bbox is None:
-                continue  # Skip invalid bbox
-            ref_type = ref_type.lower()
-            angle = _parse_angle(tail)
-            blocks.append(ContentBlock(ref_type, bbox, angle=angle))
-        return blocks
-
-    def _prepare_for_extract(
-        self,
-        image: Image.Image,
-        blocks: list[ContentBlock],
-    ) -> tuple[list[Image.Image], list[str], list[int]]:
-        image = get_rgb_image(image)
-        width, height = image.size
-        block_images: list[Image.Image] = []
-        prompts: list[str] = []
-        indices: list[int] = []
-        for idx, block in enumerate(blocks):
-            if block.type in ("image", "list", "equation_block"):
-                continue  # Skip image blocks.
-            x1, y1, x2, y2 = block.bbox
-            scaled_bbox = (x1 * width, y1 * height, x2 * width, y2 * height)
-            block_image = image.crop(scaled_bbox)
-            if block.angle in [90, 180, 270]:
-                block_image = block_image.rotate(block.angle, expand=True)
-            block_images.append(self._resize_by_need(block_image))
-            prompt = self.prompts.get(block.type) or self.prompts["[default]"]
-            prompts.append(prompt)
-            indices.append(idx)
-        return block_images, prompts, indices
-
-    def _post_process(self, blocks: list[ContentBlock]) -> list[ContentBlock]:
-        return post_process(
-            blocks,
-            handle_equation_block=self.handle_equation_block,
-            abandon_list=self.abandon_list,
-            abandon_paratext=self.abandon_paratext,
-        )
-
-    def _batch_prepare_for_layout(self, images: list[Image.Image]) -> list[Image.Image]:
-        if self.executor is None:
-            return [self._prepare_for_layout(im) for im in images]
-        return list(self.executor.map(self._prepare_for_layout, images))
-
-    def _batch_parse_layout_output(self, outputs: list[str]) -> list[list[ContentBlock]]:
-        if self.executor is None:
-            return [self._parse_layout_output(output) for output in outputs]
-        return list(self.executor.map(self._parse_layout_output, outputs))
-
-    def _batch_prepare_for_extract(
-        self,
-        images: list[Image.Image],
-        blocks_list: list[list[ContentBlock]],
-    ) -> list[tuple[list[Image.Image], list[str], list[int]]]:
-        if self.executor is None:
-            return [self._prepare_for_extract(im, bls) for im, bls in zip(images, blocks_list)]
-        return list(self.executor.map(self._prepare_for_extract, images, blocks_list))
-
-    def _batch_post_process(self, blocks_list: list[list[ContentBlock]]) -> list[list[ContentBlock]]:
-        if self.executor is None:
-            return [self._post_process(blocks) for blocks in blocks_list]
-        return list(self.executor.map(self._post_process, blocks_list))
-
-    async def _aio_prepare_for_layout(self, image: Image.Image) -> Image.Image:
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self.executor, self._prepare_for_layout, image)
-
-    async def _aio_parse_layout_output(self, output: str) -> list[ContentBlock]:
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self.executor, self._parse_layout_output, output)
-
-    async def _aio_prepare_for_extract(
-        self,
-        image: Image.Image,
-        blocks: list[ContentBlock],
-    ) -> tuple[list[Image.Image], list[str], list[int]]:
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self.executor, self._prepare_for_extract, image, blocks)
-
-    async def _aio_post_process(self, blocks: list[ContentBlock]) -> list[ContentBlock]:
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self.executor, self._post_process, blocks)
-
     def layout_detect(self, image: Image.Image) -> list[ContentBlock]:
-        image = self._prepare_for_layout(image)
+        image = self.helper.prepare_for_layout(image)
         prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
         output = self.client.predict(image, prompt)
-        return self._parse_layout_output(output)
+        return self.helper.parse_layout_output(output)
 
     def batch_layout_detect(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
-        images = self._batch_prepare_for_layout(images)
+        images = self.helper.batch_prepare_for_layout(self.executor, images)
         prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
         outputs = self.client.batch_predict(images, prompt)
-        return self._batch_parse_layout_output(outputs)
+        return self.helper.batch_parse_layout_output(self.executor, outputs)
 
     async def aio_layout_detect(self, image: Image.Image) -> list[ContentBlock]:
-        image = await self._aio_prepare_for_layout(image)
+        image = await self.helper.aio_prepare_for_layout(self.executor, image)
         prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
         output = await self.client.aio_predict(image, prompt)
-        return await self._aio_parse_layout_output(output)
+        return await self.helper.aio_parse_layout_output(self.executor, output)
 
     async def aio_batch_layout_detect(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
-        images = await asyncio.gather(*[self._aio_prepare_for_layout(im) for im in images])
+        images = await asyncio.gather(*[self.helper.aio_prepare_for_layout(self.executor, im) for im in images])
         prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
         outputs = await self.client.aio_batch_predict(images, prompt)
-        return await asyncio.gather(*[self._aio_parse_layout_output(out) for out in outputs])
+        return await asyncio.gather(*[self.helper.aio_parse_layout_output(self.executor, out) for out in outputs])
 
     def one_step_extract(self, image: Image.Image) -> list[ContentBlock]:
         prompt = self.prompts.get("[parsing]") or self.prompts["[default]"]
@@ -333,23 +382,23 @@ class MinerUClient:
             content = match.group(3)
             blocks.append(ContentBlock(ref_type, bbox, content=content))
             output = output[len(match.group(0)) :]
-        return self._post_process(blocks)
+        return self.helper.post_process(blocks)
 
     def two_step_extract(self, image: Image.Image) -> list[ContentBlock]:
         blocks = self.layout_detect(image)
-        block_images, prompts, indices = self._prepare_for_extract(image, blocks)
+        block_images, prompts, indices = self.helper.prepare_for_extract(image, blocks)
         outputs = self.client.batch_predict(block_images, prompts)
         for idx, output in zip(indices, outputs):
             blocks[idx].content = output
-        return self._post_process(blocks)
+        return self.helper.post_process(blocks)
 
     async def aio_two_step_extract(self, image: Image.Image) -> list[ContentBlock]:
         blocks = await self.aio_layout_detect(image)
-        block_images, prompts, indices = await self._aio_prepare_for_extract(image, blocks)
+        block_images, prompts, indices = await self.helper.aio_prepare_for_extract(self.executor, image, blocks)
         outputs = await self.client.aio_batch_predict(block_images, prompts)
         for idx, output in zip(indices, outputs):
             blocks[idx].content = output
-        return await self._aio_post_process(blocks)
+        return await self.helper.aio_post_process(self.executor, blocks)
 
     def concurrent_two_step_extract(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
         try:
@@ -378,7 +427,7 @@ class MinerUClient:
         all_images: list[Image.Image] = []
         all_prompts: list[str] = []
         all_indices: list[tuple[int, int]] = []
-        prepared_inputs = self._batch_prepare_for_extract(images, blocks_list)
+        prepared_inputs = self.helper.batch_prepare_for_extract(self.executor, images, blocks_list)
         for img_idx, (block_images, prompts, indices) in enumerate(prepared_inputs):
             all_images.extend(block_images)
             all_prompts.extend(prompts)
@@ -386,14 +435,14 @@ class MinerUClient:
         outputs = self.client.batch_predict(all_images, all_prompts)
         for (img_idx, idx), output in zip(all_indices, outputs):
             blocks_list[img_idx][idx].content = output
-        return self._batch_post_process(blocks_list)
+        return self.helper.batch_post_process(self.executor, blocks_list)
 
     async def aio_stepping_two_step_extract(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
         blocks_list = await self.aio_batch_layout_detect(images)
         all_images: list[Image.Image] = []
         all_prompts: list[str] = []
         all_indices: list[tuple[int, int]] = []
-        tasks = [self._aio_prepare_for_extract(im, bls) for im, bls in zip(images, blocks_list)]
+        tasks = [self.helper.aio_prepare_for_extract(self.executor, im, bls) for im, bls in zip(images, blocks_list)]
         prepared_inputs = await asyncio.gather(*tasks)
         for img_idx, (block_images, prompts, indices) in enumerate(prepared_inputs):
             all_images.extend(block_images)
@@ -402,7 +451,7 @@ class MinerUClient:
         outputs = await self.client.aio_batch_predict(all_images, all_prompts)
         for (img_idx, idx), output in zip(all_indices, outputs):
             blocks_list[img_idx][idx].content = output
-        return await asyncio.gather(*[self._aio_post_process(blocks) for blocks in blocks_list])
+        return await asyncio.gather(*[self.helper.aio_post_process(self.executor, blocks) for blocks in blocks_list])
 
     def batch_two_step_extract(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
         if self.batching_mode == "concurrent":
