@@ -35,7 +35,7 @@ VALID_RIGHT_TOKEN_LIST = [
     "\\right\\rbrack",
     "\\right\\rangle",
     "\\right|",
-    "\\right\|",
+    "\\right\\|",
     "\\right]",
     "\\right[",
     "\\right)",
@@ -64,13 +64,15 @@ LEFT_TOKEN_LIST = [
     r"\\left\(",
     r"\\left\\{",
     r"\\left\\}",
-    r"\\left\."
+    r"\\left\.",
 ]
 
+
 def count_left(latex):
-    pattern = '|'.join(LEFT_TOKEN_LIST)
+    pattern = "|".join(LEFT_TOKEN_LIST)
     matches = re.findall(pattern, latex)
     return len(matches)
+
 
 RIGHT_TOKEN_LIST = [
     r"\\right\\rbrace",
@@ -93,8 +95,9 @@ RIGHT_TOKEN_LIST = [
     r"\\right.",
 ]
 
+
 def count_right(latex):
-    pattern = '|'.join(RIGHT_TOKEN_LIST)
+    pattern = "|".join(RIGHT_TOKEN_LIST)
     matches = re.findall(pattern, latex)
     return len(matches)
 

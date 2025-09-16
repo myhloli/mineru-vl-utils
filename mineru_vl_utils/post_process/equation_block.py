@@ -1,3 +1,5 @@
+import re
+
 from ..structs import ContentBlock
 
 
@@ -18,21 +20,17 @@ def _combined_equations(equation_contents):
 
     total_tags = 0
     for equation_content in equation_contents:
-        total_tags += len(re.findall(r'\\tag\s*\{[^}]*\}', equation_content))
+        total_tags += len(re.findall(r"\\tag\s*\{[^}]*\}", equation_content))
 
     # multiple "\tags" not allowed
     if total_tags > 1:
         processed_contents = []
         for equation_content in equation_contents:
             # replace \tag{...} to (...)
-            processed_content = re.sub(
-                r'\\tag\s*\{([^}]*)\}', 
-                r'(\1)', 
-                equation_content
-            )
+            processed_content = re.sub(r"\\tag\s*\{([^}]*)\}", r"(\1)", equation_content)
             processed_contents.append(processed_content)
         equation_contents = processed_contents
-    
+
     combined_content = "\\begin{array}{l} "
     for equation_content in equation_contents:
         combined_content += equation_content + " \\\\ "
