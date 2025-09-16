@@ -1,13 +1,17 @@
 import asyncio
 import uuid
 from io import BytesIO
-from typing import List, Optional, Union
+from typing import TYPE_CHECKING, List, Optional, Union
+
+if TYPE_CHECKING:
+    from vllm.outputs import RequestOutput
 
 from PIL import Image
 
 from .base_client import (
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_USER_PROMPT,
+    RequestError,
     ServerError,
     UnsupportedError,
     VlmClient,
@@ -87,6 +91,25 @@ class VllmAsyncEngineVlmClient(VlmClient):
             ]
         messages.append({"role": "user", "content": user_messages})
         return messages
+
+    def get_output_content(self, output: "RequestOutput") -> str:
+        if not output.finished:
+            raise ServerError("The output generation was not finished.")
+
+        choices = output.outputs
+        if not (isinstance(choices, list) and choices):
+            raise ServerError("No choices found in the output.")
+
+        finish_reason = choices[0].finish_reason
+        if finish_reason == "length":
+            if not self.allow_truncated_content:
+                raise RequestError("The output was truncated due to length limit.")
+            else:
+                print("Warning: The output was truncated due to length limit.")
+        elif finish_reason != "stop":
+            raise RequestError(f"Unexpected finish reason: {finish_reason}")
+
+        return choices[0].text
 
     def predict(
         self,
@@ -195,10 +218,10 @@ class VllmAsyncEngineVlmClient(VlmClient):
         ):
             last_output = output
 
-        if last_output is None:
-            # this should not happen
-            raise ServerError("No response from the server.")
-        return last_output.outputs[0].text
+        if last_output is None:  # this should not happen
+            raise ServerError("No output from the server.")
+
+        return self.get_output_content(last_output)
 
     async def aio_batch_predict(
         self,

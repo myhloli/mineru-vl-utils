@@ -104,15 +104,20 @@ class MinerUClientHelper:
         for line in output.split("\n"):
             match = re.match(_layout_re, line)
             if not match:
+                print(f"Warning: line does not match layout format: {line}")
                 continue  # Skip invalid lines
             x1, y1, x2, y2, ref_type, tail = match.groups()
             bbox = _convert_bbox((x1, y1, x2, y2))
             if bbox is None:
+                print(f"Warning: invalid bbox in line: {line}")
                 continue  # Skip invalid bbox
             ref_type = ref_type.lower()
             if ref_type not in BLOCK_TYPES:
+                print(f"Warning: unknown block type in line: {line}")
                 continue  # Skip unknown block types
             angle = _parse_angle(tail)
+            if angle is None:
+                print(f"Warning: no angle found in line: {line}")
             blocks.append(ContentBlock(ref_type, bbox, angle=angle))
         return blocks
 
