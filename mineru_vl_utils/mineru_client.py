@@ -340,6 +340,7 @@ class MinerUClient:
             abandon_paratext=abandon_paratext,
             debug=debug,
         )
+        self.backend = backend
         self.prompts = prompts
         self.max_concurrency = max_concurrency
         self.executor = executor
