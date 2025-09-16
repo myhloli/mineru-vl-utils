@@ -232,8 +232,8 @@ def is_pair_left_right(token_l, token_r):
         (token_r == "\\right|" or token_r == "\\right."):
         return True
     
-    if (token_l == "\\left\|" or token_l == "\\left.") and \
-        (token_r == "\\right\|" or token_r == "\\right."):
+    if (token_l == "\\left\\|" or token_l == "\\left.") and \
+        (token_r == "\\right\\|" or token_r == "\\right."):
         return True
     
     if (token_l == "\\left[" or token_l == "\\left.") and \
