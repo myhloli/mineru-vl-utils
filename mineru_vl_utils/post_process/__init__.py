@@ -1,6 +1,8 @@
 from ..structs import ContentBlock
 from .equation_block import do_handle_equation_block
 from .equation_left_right import try_match_equation_left_right
+from .equation_double_subscript import try_fix_equation_double_subscript
+from .equation_fix_eqqcolon import try_fix_equation_eqqcolon
 from .otsl2html import convert_otsl_to_html
 
 PARATEXT_TYPES = {
@@ -25,6 +27,8 @@ def post_process(
             block.content = convert_otsl_to_html(block.content)
         if block.type == "equation" and block.content:
             block.content = try_match_equation_left_right(block.content, debug=debug)
+            block.content = try_fix_equation_double_subscript(block.content, debug=debug)
+            block.content = try_fix_equation_eqqcolon(block.content, debug=debug)
 
     if handle_equation_block:
         blocks = do_handle_equation_block(blocks, debug=debug)

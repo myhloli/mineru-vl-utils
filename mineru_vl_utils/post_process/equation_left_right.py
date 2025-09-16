@@ -14,7 +14,9 @@ VALID_LEFT_TOKEN_LIST = [
     "\\left|",
     "\\left\\|",
     "\\left[",
+    "\\left]",
     "\\left(",
+    "\\left)",
     "\\left\\{",
     "\\left\\}",
     "\\left.",
@@ -33,9 +35,11 @@ VALID_RIGHT_TOKEN_LIST = [
     "\\right\\rbrack",
     "\\right\\rangle",
     "\\right|",
-    "\\right\\|",
+    "\\right\|",
     "\\right]",
+    "\\right[",
     "\\right)",
+    "\\right(",
     "\\right\\}",
     "\\right\\{",
     "\\right.",
@@ -56,12 +60,17 @@ LEFT_TOKEN_LIST = [
     r"\\left\|",
     r"\\left\\\|",
     r"\\left\[",
+    r"\\left\]",
     r"\\left\(",
     r"\\left\\{",
     r"\\left\\}",
-    r"\\left\.",
-    r"\\left/",
+    r"\\left\."
 ]
+
+def count_left(latex):
+    pattern = '|'.join(LEFT_TOKEN_LIST)
+    matches = re.findall(pattern, latex)
+    return len(matches)
 
 RIGHT_TOKEN_LIST = [
     r"\\right\\rbrace",
@@ -77,22 +86,15 @@ RIGHT_TOKEN_LIST = [
     r"\\right\|",
     r"\\right\\\|",
     r"\\right\]",
+    r"\\right\[",
     r"\\right\)",
     r"\\right\\}",
     r"\\right\\{",
-    r"\\right\.",
-    r"\\right/",
+    r"\\right.",
 ]
 
-
-def count_left(latex: str) -> int:
-    pattern = "|".join(LEFT_TOKEN_LIST)
-    matches = re.findall(pattern, latex)
-    return len(matches)
-
-
-def count_right(latex: str) -> int:
-    pattern = "|".join(RIGHT_TOKEN_LIST)
+def count_right(latex):
+    pattern = '|'.join(RIGHT_TOKEN_LIST)
     matches = re.findall(pattern, latex)
     return len(matches)
 
@@ -197,63 +199,71 @@ def is_pair_left_right(token_l, token_r):
     if (token_l == "\\left\\lbrace" or token_l == "\\left.") and \
         (token_r == "\\right\\rbrace" or token_r == "\\right."):
         return True
-
+    
     if (token_l == "\\left\\lVert" or token_l == "\\left.") and \
         (token_r == "\\right\\lVert" or token_r == "\\right."):
         return True
-
+    
     if (token_l == "\\left\\lvert" or token_l == "\\left.") and \
         (token_r == "\\right\\lvert" or token_r == "\\right."):
         return True
-
+    
     if (token_l == "\\left\\vert" or token_l == "\\left.") and \
         (token_r == "\\right\\vert" or token_r == "\\right."):
         return True
-
+    
     if (token_l == "\\left\\Vert" or token_l == "\\left.") and \
         (token_r == "\\right\\Vert" or token_r == "\\right."):
         return True
-
+    
     if (token_l == "\\left\\lfloor" or token_l == "\\left.") and \
         (token_r == "\\right\\rfloor" or token_r == "\\right."):
         return True
-
+    
     if (token_l == "\\left\\lbrack" or token_l == "\\left.") and \
         (token_r == "\\right\\rbrack" or token_r == "\\right."):
         return True
-
+    
     if (token_l == "\\left\\langle" or token_l == "\\left.") and \
         (token_r == "\\right\\rangle" or token_r == "\\right."):
         return True
-
+    
     if (token_l == "\\left|" or token_l == "\\left.") and \
         (token_r == "\\right|" or token_r == "\\right."):
         return True
-
-    if (token_l == "\\left\\|" or token_l == "\\left.") and \
-        (token_r == "\\right\\|" or token_r == "\\right."):
+    
+    if (token_l == "\\left\|" or token_l == "\\left.") and \
+        (token_r == "\\right\|" or token_r == "\\right."):
         return True
-
+    
     if (token_l == "\\left[" or token_l == "\\left.") and \
         (token_r == "\\right]" or token_r == "\\right."):
         return True
-
+    
+    if (token_l == "\\left]" or token_l == "\\left.") and \
+        (token_r == "\\right[" or token_r == "\\right."):
+        return True
+    
     if (token_l == "\\left(" or token_l == "\\left.") and \
         (token_r == "\\right)" or token_r == "\\right."):
         return True
-
+    
+    if (token_l == "\\left)" or token_l == "\\left.") and \
+        (token_r == "\\right(" or token_r == "\\right."):
+        return True
+    
     if (token_l == "\\left\\{" or token_l == "\\left.") and \
         (token_r == "\\right\\}" or token_r == "\\right."):
         return True
-
+    
     if (token_l == "\\left\\}" or token_l == "\\left.") and \
         (token_r == "\\right\\{" or token_r == "\\right."):
         return True
-
+    
     if (token_l == "\\left/" or token_l == "\\left.") and \
         (token_r == "\\right/" or token_r == "\\right."):
         return True
-
+    
     return False
 
 
