@@ -1,10 +1,10 @@
 import asyncio
 from io import BytesIO
-from typing import TYPE_CHECKING, List, Optional, Union
+from typing import TYPE_CHECKING, Sequence
 
 if TYPE_CHECKING:
     from vllm.outputs import RequestOutput
-    from vllm.sampling_params import SamplingParams
+    from vllm.sampling_params import SamplingParams as VllmSamplingParams
 
 from PIL import Image
 
@@ -12,6 +12,7 @@ from .base_client import (
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_USER_PROMPT,
     RequestError,
+    SamplingParams,
     ServerError,
     UnsupportedError,
     VlmClient,
@@ -25,14 +26,7 @@ class VllmEngineVlmClient(VlmClient):
         vllm_llm,  # vllm.LLM instance
         prompt: str = DEFAULT_USER_PROMPT,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
-        temperature: float | None = None,
-        top_p: float | None = None,
-        top_k: int | None = None,
-        presence_penalty: float | None = None,
-        frequency_penalty: float | None = None,
-        repetition_penalty: float | None = None,
-        no_repeat_ngram_size: int | None = None,  # not supported by vllm
-        max_new_tokens: int | None = None,
+        sampling_params: SamplingParams | None = None,
         text_before_image: bool = False,
         allow_truncated_content: bool = False,
         batch_size: int = 0,
@@ -40,14 +34,7 @@ class VllmEngineVlmClient(VlmClient):
         super().__init__(
             prompt=prompt,
             system_prompt=system_prompt,
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            presence_penalty=presence_penalty,
-            frequency_penalty=frequency_penalty,
-            repetition_penalty=repetition_penalty,
-            no_repeat_ngram_size=no_repeat_ngram_size,
-            max_new_tokens=max_new_tokens,
+            sampling_params=sampling_params,
             text_before_image=text_before_image,
             allow_truncated_content=allow_truncated_content,
         )
@@ -93,6 +80,25 @@ class VllmEngineVlmClient(VlmClient):
         messages.append({"role": "user", "content": user_messages})
         return messages
 
+    def build_vllm_sampling_params(self, sampling_params: SamplingParams | None):
+        sp = self.build_sampling_params(sampling_params)
+
+        vllm_sp_dict = {
+            "temperature": sp.temperature,
+            "top_p": sp.top_p,
+            "top_k": sp.top_k,
+            "presence_penalty": sp.presence_penalty,
+            "frequency_penalty": sp.frequency_penalty,
+            "repetition_penalty": sp.repetition_penalty,
+            # max_tokens should smaller than model max length
+            "max_tokens": sp.max_new_tokens if sp.max_new_tokens is not None else self.model_max_length,
+        }
+
+        return self.VllmSamplingParams(
+            **{k: v for k, v in vllm_sp_dict.items() if v is not None},
+            skip_special_tokens=False,
+        )
+
     def get_output_content(self, output: "RequestOutput") -> str:
         if not output.finished:
             raise ServerError("The output generation was not finished.")
@@ -116,70 +122,24 @@ class VllmEngineVlmClient(VlmClient):
         self,
         image: str | bytes | Image.Image,
         prompt: str = "",
-        temperature: Optional[float] = None,
-        top_p: Optional[float] = None,
-        top_k: Optional[int] = None,
-        presence_penalty: Optional[float] = None,
-        frequency_penalty: Optional[float] = None,
-        repetition_penalty: Optional[float] = None,
-        no_repeat_ngram_size: Optional[int] = None,  # not supported by vllm
-        max_new_tokens: Optional[int] = None,
+        sampling_params: SamplingParams | None = None,
     ) -> str:
         return self.batch_predict(
             [image],  # type: ignore
             [prompt],
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            presence_penalty=presence_penalty,
-            frequency_penalty=frequency_penalty,
-            repetition_penalty=repetition_penalty,
-            no_repeat_ngram_size=no_repeat_ngram_size,
-            max_new_tokens=max_new_tokens,
+            [sampling_params],
         )[0]
 
     def batch_predict(
         self,
-        images: List[str] | List[bytes] | List[Image.Image],
-        prompts: Union[List[str], str] = "",
-        temperature: Optional[float] = None,
-        top_p: Optional[float] = None,
-        top_k: Optional[int] = None,
-        presence_penalty: Optional[float] = None,
-        frequency_penalty: Optional[float] = None,
-        repetition_penalty: Optional[float] = None,
-        no_repeat_ngram_size: Optional[int] = None,  # not supported by vllm
-        max_new_tokens: Optional[int] = None,
-    ) -> List[str]:
+        images: list[str] | list[bytes] | list[Image.Image],
+        prompts: list[str] | str = "",
+        sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
+    ) -> list[str]:
         if isinstance(prompts, list):
             assert len(prompts) == len(images), "Length of prompts and images must match."
-
-        sp = self.build_sampling_params(
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            presence_penalty=presence_penalty,
-            frequency_penalty=frequency_penalty,
-            repetition_penalty=repetition_penalty,
-            no_repeat_ngram_size=no_repeat_ngram_size,
-            max_new_tokens=max_new_tokens,
-        )
-
-        vllm_sp_dict = {
-            "temperature": sp.temperature,
-            "top_p": sp.top_p,
-            "top_k": sp.top_k,
-            "presence_penalty": sp.presence_penalty,
-            "frequency_penalty": sp.frequency_penalty,
-            "repetition_penalty": sp.repetition_penalty,
-            # max_tokens should smaller than model max length
-            "max_tokens": sp.max_new_tokens if sp.max_new_tokens is not None else self.model_max_length,
-        }
-
-        vllm_sampling_params = self.VllmSamplingParams(
-            **{k: v for k, v in vllm_sp_dict.items() if v is not None},
-            skip_special_tokens=False,
-        )
+        if isinstance(sampling_params, Sequence):
+            assert len(sampling_params) == len(images), "Length of sampling_params and images must match."
 
         image_objs: list[Image.Image] = []
         for image in images:
@@ -208,16 +168,22 @@ class VllmEngineVlmClient(VlmClient):
                 for prompt in prompts
             ]
 
+        if not isinstance(sampling_params, Sequence):
+            vllm_sp_list = [self.build_vllm_sampling_params(sampling_params)] * len(images)
+        else:
+            vllm_sp_list = [self.build_vllm_sampling_params(sp) for sp in sampling_params]
+
         outputs = []
         batch_size = self.batch_size if self.batch_size > 0 else len(images)
 
         for i in range(0, len(images), batch_size):
             batch_image_objs = image_objs[i : i + batch_size]
             batch_chat_prompts = chat_prompts[i : i + batch_size]
+            batch_sp_list = vllm_sp_list[i : i + batch_size]
             batch_outputs = self._predict_one_batch(
                 batch_image_objs,
                 batch_chat_prompts,
-                vllm_sampling_params,
+                batch_sp_list,
             )
             outputs.extend(batch_outputs)
 
@@ -225,9 +191,9 @@ class VllmEngineVlmClient(VlmClient):
 
     def _predict_one_batch(
         self,
-        image_objs: List[Image.Image],
-        chat_prompts: List[str],
-        vllm_sampling_params: "SamplingParams",
+        image_objs: list[Image.Image],
+        chat_prompts: list[str],
+        vllm_sampling_params: list["VllmSamplingParams"],
     ):
         vllm_prompts = [
             {"prompt": chat_prompt, "multi_modal_data": {"image": image}}
@@ -245,14 +211,7 @@ class VllmEngineVlmClient(VlmClient):
         self,
         image: str | bytes | Image.Image,
         prompt: str = "",
-        temperature: Optional[float] = None,
-        top_p: Optional[float] = None,
-        top_k: Optional[int] = None,
-        presence_penalty: Optional[float] = None,
-        frequency_penalty: Optional[float] = None,
-        repetition_penalty: Optional[float] = None,
-        no_repeat_ngram_size: Optional[int] = None,  # not supported by vllm
-        max_new_tokens: Optional[int] = None,
+        sampling_params: SamplingParams | None = None,
     ) -> str:
         raise UnsupportedError(
             "Asynchronous aio_predict() is not supported in TransformersVlmClient. Please use predict() instead."
@@ -260,18 +219,11 @@ class VllmEngineVlmClient(VlmClient):
 
     async def aio_batch_predict(
         self,
-        images: List[str] | List[bytes] | List[Image.Image],
-        prompts: Union[List[str], str] = "",
-        temperature: Optional[float] = None,
-        top_p: Optional[float] = None,
-        top_k: Optional[int] = None,
-        presence_penalty: Optional[float] = None,
-        frequency_penalty: Optional[float] = None,
-        repetition_penalty: Optional[float] = None,
-        no_repeat_ngram_size: Optional[int] = None,  # not supported by vllm
-        max_new_tokens: Optional[int] = None,
+        images: list[str] | list[bytes] | list[Image.Image],
+        prompts: list[str] | str = "",
+        sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         semaphore: asyncio.Semaphore | None = None,
-    ) -> List[str]:
+    ) -> list[str]:
         raise UnsupportedError(
             "Asynchronous aio_batch_predict() is not supported in TransformersVlmClient. Please use batch_predict() instead."
         )

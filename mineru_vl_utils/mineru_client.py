@@ -8,7 +8,7 @@ from PIL import Image
 
 from .post_process import post_process
 from .structs import BLOCK_TYPES, ContentBlock
-from .vlm_client import DEFAULT_SYSTEM_PROMPT, new_vlm_client
+from .vlm_client import DEFAULT_SYSTEM_PROMPT, SamplingParams, new_vlm_client
 from .vlm_client.utils import get_rgb_image
 
 _layout_re = r"^<\|box_start\|>(\d+)\s+(\d+)\s+(\d+)\s+(\d+)<\|box_end\|><\|ref_start\|>(\w+?)<\|ref_end\|>(.*)$"
@@ -317,14 +317,16 @@ class MinerUClient:
             vllm_llm=vllm_llm,
             vllm_async_llm=vllm_async_llm,
             system_prompt=system_prompt,
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            presence_penalty=presence_penalty,
-            frequency_penalty=frequency_penalty,
-            repetition_penalty=repetition_penalty,
-            no_repeat_ngram_size=no_repeat_ngram_size,
-            max_new_tokens=max_new_tokens,
+            sampling_params=SamplingParams(
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                presence_penalty=presence_penalty,
+                frequency_penalty=frequency_penalty,
+                repetition_penalty=repetition_penalty,
+                no_repeat_ngram_size=no_repeat_ngram_size,
+                max_new_tokens=max_new_tokens,
+            ),
             allow_truncated_content=True,  # Allow truncated content for MinerU
             max_concurrency=max_concurrency,
             batch_size=batch_size,

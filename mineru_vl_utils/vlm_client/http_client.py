@@ -2,7 +2,7 @@ import asyncio
 import json
 import os
 import re
-from typing import AsyncIterable, Iterable, List, Optional, Set, Tuple, Union
+from typing import AsyncIterable, Iterable, Sequence
 
 import httpx
 from PIL import Image
@@ -34,14 +34,7 @@ class HttpVlmClient(VlmClient):
         server_url: str | None = None,
         prompt: str = DEFAULT_USER_PROMPT,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
-        temperature: float | None = None,
-        top_p: float | None = None,
-        top_k: int | None = None,
-        presence_penalty: float | None = None,
-        frequency_penalty: float | None = None,
-        repetition_penalty: float | None = None,
-        no_repeat_ngram_size: int | None = None,  # not supported
-        max_new_tokens: int | None = None,
+        sampling_params: SamplingParams | None = None,
         text_before_image: bool = False,
         allow_truncated_content: bool = False,
         max_concurrency: int = 1024,
@@ -51,14 +44,7 @@ class HttpVlmClient(VlmClient):
         super().__init__(
             prompt=prompt,
             system_prompt=system_prompt,
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            presence_penalty=presence_penalty,
-            frequency_penalty=frequency_penalty,
-            repetition_penalty=repetition_penalty,
-            no_repeat_ngram_size=no_repeat_ngram_size,
-            max_new_tokens=max_new_tokens,
+            sampling_params=sampling_params,
             text_before_image=text_before_image,
             allow_truncated_content=allow_truncated_content,
         )
@@ -141,7 +127,7 @@ class HttpVlmClient(VlmClient):
         system_prompt: str,
         image: bytes,
         prompt: str,
-        sampling_params: SamplingParams,
+        sampling_params: SamplingParams | None,
         image_format: str | None,
     ) -> dict:
         image_url = get_image_data_url(image, image_format)
@@ -169,32 +155,33 @@ class HttpVlmClient(VlmClient):
             ]
         messages.append({"role": "user", "content": user_messages})
 
-        sampling_params_dict = {}
-        if sampling_params.temperature is not None:
-            sampling_params_dict["temperature"] = sampling_params.temperature
-        if sampling_params.top_p is not None:
-            sampling_params_dict["top_p"] = sampling_params.top_p
-        if sampling_params.top_k is not None:
-            sampling_params_dict["top_k"] = sampling_params.top_k
-        if sampling_params.presence_penalty is not None:
-            sampling_params_dict["presence_penalty"] = sampling_params.presence_penalty
-        if sampling_params.frequency_penalty is not None:
-            sampling_params_dict["frequency_penalty"] = sampling_params.frequency_penalty
-        if sampling_params.repetition_penalty is not None:
-            sampling_params_dict["repetition_penalty"] = sampling_params.repetition_penalty
-        if sampling_params.max_new_tokens is not None:
-            sampling_params_dict["max_completion_tokens"] = sampling_params.max_new_tokens
-        sampling_params_dict["skip_special_tokens"] = False
+        sp = self.build_sampling_params(sampling_params)
+        sp_dict = {}
+        if sp.temperature is not None:
+            sp_dict["temperature"] = sp.temperature
+        if sp.top_p is not None:
+            sp_dict["top_p"] = sp.top_p
+        if sp.top_k is not None:
+            sp_dict["top_k"] = sp.top_k
+        if sp.presence_penalty is not None:
+            sp_dict["presence_penalty"] = sp.presence_penalty
+        if sp.frequency_penalty is not None:
+            sp_dict["frequency_penalty"] = sp.frequency_penalty
+        if sp.repetition_penalty is not None:
+            sp_dict["repetition_penalty"] = sp.repetition_penalty
+        if sp.max_new_tokens is not None:
+            sp_dict["max_completion_tokens"] = sp.max_new_tokens
+        sp_dict["skip_special_tokens"] = False
 
         if self.model_name.lower().startswith("gpt"):
-            sampling_params_dict.pop("top_k", None)
-            sampling_params_dict.pop("repetition_penalty", None)
-            sampling_params_dict.pop("skip_special_tokens", None)
+            sp_dict.pop("top_k", None)
+            sp_dict.pop("repetition_penalty", None)
+            sp_dict.pop("skip_special_tokens", None)
 
         return {
             "model": self.model_name,
             "messages": messages,
-            **sampling_params_dict,
+            **sp_dict,
         }
 
     def get_response_data(self, response: httpx.Response) -> dict:
@@ -236,26 +223,8 @@ class HttpVlmClient(VlmClient):
         self,
         image: str | bytes | Image.Image,
         prompt: str = "",
-        temperature: Optional[float] = None,
-        top_p: Optional[float] = None,
-        top_k: Optional[int] = None,
-        presence_penalty: Optional[float] = None,
-        frequency_penalty: Optional[float] = None,
-        repetition_penalty: Optional[float] = None,
-        no_repeat_ngram_size: Optional[int] = None,
-        max_new_tokens: Optional[int] = None,
+        sampling_params: SamplingParams | None = None,
     ) -> str:
-        sampling_params = self.build_sampling_params(
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            presence_penalty=presence_penalty,
-            frequency_penalty=frequency_penalty,
-            repetition_penalty=repetition_penalty,
-            no_repeat_ngram_size=no_repeat_ngram_size,
-            max_new_tokens=max_new_tokens,
-        )
-
         image_format = None
         if isinstance(image, str):
             image = load_resource(image)
@@ -292,17 +261,10 @@ class HttpVlmClient(VlmClient):
 
     def batch_predict(
         self,
-        images: List[str] | List[bytes] | List[Image.Image],
-        prompts: Union[List[str], str] = "",
-        temperature: Optional[float] = None,
-        top_p: Optional[float] = None,
-        top_k: Optional[int] = None,
-        presence_penalty: Optional[float] = None,
-        frequency_penalty: Optional[float] = None,
-        repetition_penalty: Optional[float] = None,
-        no_repeat_ngram_size: Optional[int] = None,
-        max_new_tokens: Optional[int] = None,
-    ) -> List[str]:
+        images: list[str] | list[bytes] | list[Image.Image],
+        prompts: list[str] | str = "",
+        sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
+    ) -> list[str]:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -311,14 +273,7 @@ class HttpVlmClient(VlmClient):
         task = self.aio_batch_predict(
             images=images,
             prompts=prompts,
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            presence_penalty=presence_penalty,
-            frequency_penalty=frequency_penalty,
-            repetition_penalty=repetition_penalty,
-            no_repeat_ngram_size=no_repeat_ngram_size,
-            max_new_tokens=max_new_tokens,
+            sampling_params=sampling_params,
         )
 
         if loop is not None:
@@ -330,26 +285,8 @@ class HttpVlmClient(VlmClient):
         self,
         image: str | bytes | Image.Image,
         prompt: str = "",
-        temperature: Optional[float] = None,
-        top_p: Optional[float] = None,
-        top_k: Optional[int] = None,
-        presence_penalty: Optional[float] = None,
-        frequency_penalty: Optional[float] = None,
-        repetition_penalty: Optional[float] = None,
-        no_repeat_ngram_size: Optional[int] = None,
-        max_new_tokens: Optional[int] = None,
+        sampling_params: SamplingParams | None = None,
     ) -> Iterable[str]:
-        sampling_params = self.build_sampling_params(
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            presence_penalty=presence_penalty,
-            frequency_penalty=frequency_penalty,
-            repetition_penalty=repetition_penalty,
-            no_repeat_ngram_size=no_repeat_ngram_size,
-            max_new_tokens=max_new_tokens,
-        )
-
         image_format = None
         if isinstance(image, str):
             image = load_resource(image)
@@ -396,14 +333,7 @@ class HttpVlmClient(VlmClient):
         self,
         image: str | bytes | Image.Image,
         prompt: str = "",
-        temperature: Optional[float] = None,
-        top_p: Optional[float] = None,
-        top_k: Optional[int] = None,
-        presence_penalty: Optional[float] = None,
-        frequency_penalty: Optional[float] = None,
-        repetition_penalty: Optional[float] = None,
-        no_repeat_ngram_size: Optional[int] = None,
-        max_new_tokens: Optional[int] = None,
+        sampling_params: SamplingParams | None = None,
     ) -> None:
         """
         Test the streaming functionality by printing the output.
@@ -412,14 +342,7 @@ class HttpVlmClient(VlmClient):
         for chunk in self.stream_predict(
             image=image,
             prompt=prompt,
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            presence_penalty=presence_penalty,
-            frequency_penalty=frequency_penalty,
-            repetition_penalty=repetition_penalty,
-            no_repeat_ngram_size=no_repeat_ngram_size,
-            max_new_tokens=max_new_tokens,
+            sampling_params=sampling_params,
         ):
             print(chunk, end="", flush=True)
         print("\n[End of Streaming Output]", flush=True)
@@ -428,27 +351,9 @@ class HttpVlmClient(VlmClient):
         self,
         image: str | bytes | Image.Image,
         prompt: str = "",
-        temperature: Optional[float] = None,
-        top_p: Optional[float] = None,
-        top_k: Optional[int] = None,
-        presence_penalty: Optional[float] = None,
-        frequency_penalty: Optional[float] = None,
-        repetition_penalty: Optional[float] = None,
-        no_repeat_ngram_size: Optional[int] = None,
-        max_new_tokens: Optional[int] = None,
-        async_client: Optional[httpx.AsyncClient] = None,
+        sampling_params: SamplingParams | None = None,
+        async_client: httpx.AsyncClient | None = None,
     ) -> str:
-        sampling_params = self.build_sampling_params(
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            presence_penalty=presence_penalty,
-            frequency_penalty=frequency_penalty,
-            repetition_penalty=repetition_penalty,
-            no_repeat_ngram_size=no_repeat_ngram_size,
-            max_new_tokens=max_new_tokens,
-        )
-
         image_format = None
         if isinstance(image, str):
             image = await aio_load_resource(image)
@@ -486,22 +391,18 @@ class HttpVlmClient(VlmClient):
 
     async def aio_batch_predict(
         self,
-        images: List[str] | List[bytes] | List[Image.Image],
-        prompts: Union[List[str], str] = "",
-        temperature: Optional[float] = None,
-        top_p: Optional[float] = None,
-        top_k: Optional[int] = None,
-        presence_penalty: Optional[float] = None,
-        frequency_penalty: Optional[float] = None,
-        repetition_penalty: Optional[float] = None,
-        no_repeat_ngram_size: Optional[int] = None,
-        max_new_tokens: Optional[int] = None,
+        images: list[str] | list[bytes] | list[Image.Image],
+        prompts: list[str] | str = "",
+        sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         semaphore: asyncio.Semaphore | None = None,
-    ) -> List[str]:
+    ) -> list[str]:
         if not isinstance(prompts, list):
             prompts = [prompts] * len(images)
+        if not isinstance(sampling_params, Sequence):
+            sampling_params = [sampling_params] * len(images)
 
         assert len(prompts) == len(images), "Length of prompts and images must match."
+        assert len(sampling_params) == len(images), "Length of sampling_params and images must match."
 
         if semaphore is None:
             semaphore = asyncio.Semaphore(self.max_concurrency)
@@ -509,45 +410,35 @@ class HttpVlmClient(VlmClient):
         async def predict_with_semaphore(
             image: str | bytes | Image.Image,
             prompt: str,
+            sampling_params: SamplingParams | None,
             async_client: httpx.AsyncClient,
         ):
             async with semaphore:
                 return await self.aio_predict(
                     image=image,
                     prompt=prompt,
-                    temperature=temperature,
-                    top_p=top_p,
-                    top_k=top_k,
-                    presence_penalty=presence_penalty,
-                    frequency_penalty=frequency_penalty,
-                    repetition_penalty=repetition_penalty,
-                    no_repeat_ngram_size=no_repeat_ngram_size,
-                    max_new_tokens=max_new_tokens,
+                    sampling_params=sampling_params,
                     async_client=async_client,
                 )
 
         async with httpx.AsyncClient(timeout=self.http_timeout) as client:
-            tasks = [predict_with_semaphore(*args, client) for args in zip(images, prompts)]
+            tasks = [predict_with_semaphore(*args, client) for args in zip(images, prompts, sampling_params)]
             return await asyncio.gather(*tasks)
 
     async def aio_batch_predict_as_iter(
         self,
-        images: List[str] | List[bytes] | List[Image.Image],
-        prompts: Union[List[str], str] = "",
-        temperature: Optional[float] = None,
-        top_p: Optional[float] = None,
-        top_k: Optional[int] = None,
-        presence_penalty: Optional[float] = None,
-        frequency_penalty: Optional[float] = None,
-        repetition_penalty: Optional[float] = None,
-        no_repeat_ngram_size: Optional[int] = None,
-        max_new_tokens: Optional[int] = None,
+        images: list[str] | list[bytes] | list[Image.Image],
+        prompts: list[str] | str = "",
+        sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         semaphore: asyncio.Semaphore | None = None,
-    ) -> AsyncIterable[Tuple[int, str]]:
+    ) -> AsyncIterable[tuple[int, str]]:
         if not isinstance(prompts, list):
             prompts = [prompts] * len(images)
+        if not isinstance(sampling_params, Sequence):
+            sampling_params = [sampling_params] * len(images)
 
         assert len(prompts) == len(images), "Length of prompts and images must match."
+        assert len(sampling_params) == len(images), "Length of sampling_params and images must match."
 
         if semaphore is None:
             semaphore = asyncio.Semaphore(self.max_concurrency)
@@ -556,31 +447,25 @@ class HttpVlmClient(VlmClient):
             idx: int,
             image: str | bytes | Image.Image,
             prompt: str,
+            sampling_params: SamplingParams | None,
             async_client: httpx.AsyncClient,
         ):
             async with semaphore:
                 output = await self.aio_predict(
                     image=image,
                     prompt=prompt,
-                    temperature=temperature,
-                    top_p=top_p,
-                    top_k=top_k,
-                    presence_penalty=presence_penalty,
-                    frequency_penalty=frequency_penalty,
-                    repetition_penalty=repetition_penalty,
-                    no_repeat_ngram_size=no_repeat_ngram_size,
-                    max_new_tokens=max_new_tokens,
+                    sampling_params=sampling_params,
                     async_client=async_client,
                 )
                 return (idx, output)
 
         async with httpx.AsyncClient(timeout=self.http_timeout) as client:
-            pending: Set[asyncio.Task[Tuple[int, str]]] = set()
+            pending: set[asyncio.Task[tuple[int, str]]] = set()
 
-            for idx, (prompt, image) in enumerate(zip(prompts, images)):
+            for idx, (prompt, image, params) in enumerate(zip(prompts, images, sampling_params)):
                 pending.add(
                     asyncio.create_task(
-                        predict_with_semaphore(idx, image, prompt, client),
+                        predict_with_semaphore(idx, image, prompt, params, client),
                     )
                 )
 

@@ -1,7 +1,7 @@
 import asyncio
 import uuid
 from io import BytesIO
-from typing import TYPE_CHECKING, List, Optional, Union
+from typing import TYPE_CHECKING, Sequence
 
 if TYPE_CHECKING:
     from vllm.outputs import RequestOutput
@@ -12,6 +12,7 @@ from .base_client import (
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_USER_PROMPT,
     RequestError,
+    SamplingParams,
     ServerError,
     UnsupportedError,
     VlmClient,
@@ -25,14 +26,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
         vllm_async_llm,  # vllm.v1.engine.async_llm.AsyncLLM instance
         prompt: str = DEFAULT_USER_PROMPT,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
-        temperature: float | None = None,
-        top_p: float | None = None,
-        top_k: int | None = None,
-        presence_penalty: float | None = None,
-        frequency_penalty: float | None = None,
-        repetition_penalty: float | None = None,
-        no_repeat_ngram_size: int | None = None,  # not supported by vllm
-        max_new_tokens: int | None = None,
+        sampling_params: SamplingParams | None = None,
         text_before_image: bool = False,
         allow_truncated_content: bool = False,
         max_concurrency: int = 1024,
@@ -40,14 +34,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
         super().__init__(
             prompt=prompt,
             system_prompt=system_prompt,
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            presence_penalty=presence_penalty,
-            frequency_penalty=frequency_penalty,
-            repetition_penalty=repetition_penalty,
-            no_repeat_ngram_size=no_repeat_ngram_size,
-            max_new_tokens=max_new_tokens,
+            sampling_params=sampling_params,
             text_before_image=text_before_image,
             allow_truncated_content=allow_truncated_content,
         )
@@ -96,6 +83,26 @@ class VllmAsyncEngineVlmClient(VlmClient):
         messages.append({"role": "user", "content": user_messages})
         return messages
 
+    def build_vllm_sampling_params(self, sampling_params: SamplingParams | None):
+        sp = self.build_sampling_params(sampling_params)
+
+        vllm_sp_dict = {
+            "temperature": sp.temperature,
+            "top_p": sp.top_p,
+            "top_k": sp.top_k,
+            "presence_penalty": sp.presence_penalty,
+            "frequency_penalty": sp.frequency_penalty,
+            "repetition_penalty": sp.repetition_penalty,
+            # max_tokens should smaller than model max length
+            "max_tokens": sp.max_new_tokens if sp.max_new_tokens is not None else self.model_max_length,
+        }
+
+        return self.VllmSamplingParams(
+            **{k: v for k, v in vllm_sp_dict.items() if v is not None},
+            skip_special_tokens=False,
+            output_kind=self.VllmRequestOutputKind.FINAL_ONLY,
+        )
+
     def get_output_content(self, output: "RequestOutput") -> str:
         if not output.finished:
             raise ServerError("The output generation was not finished.")
@@ -119,14 +126,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
         self,
         image: str | bytes | Image.Image,
         prompt: str = "",
-        temperature: Optional[float] = None,
-        top_p: Optional[float] = None,
-        top_k: Optional[int] = None,
-        presence_penalty: Optional[float] = None,
-        frequency_penalty: Optional[float] = None,
-        repetition_penalty: Optional[float] = None,
-        no_repeat_ngram_size: Optional[int] = None,  # not supported by vllm
-        max_new_tokens: Optional[int] = None,
+        sampling_params: SamplingParams | None = None,
     ) -> str:
         raise UnsupportedError(
             "Synchronous predict() is not supported in VllmAsyncEngineVlmClient. Please use aio_predict() instead."
@@ -134,17 +134,10 @@ class VllmAsyncEngineVlmClient(VlmClient):
 
     def batch_predict(
         self,
-        images: List[str] | List[bytes] | List[Image.Image],
-        prompts: Union[List[str], str] = "",
-        temperature: Optional[float] = None,
-        top_p: Optional[float] = None,
-        top_k: Optional[int] = None,
-        presence_penalty: Optional[float] = None,
-        frequency_penalty: Optional[float] = None,
-        repetition_penalty: Optional[float] = None,
-        no_repeat_ngram_size: Optional[int] = None,  # not supported by vllm
-        max_new_tokens: Optional[int] = None,
-    ) -> List[str]:
+        images: list[str] | list[bytes] | list[Image.Image],
+        prompts: list[str] | str = "",
+        sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
+    ) -> list[str]:
         raise UnsupportedError(
             "Synchronous batch_predict() is not supported in VllmAsyncEngineVlmClient. "
             "Please use aio_batch_predict() instead."
@@ -154,14 +147,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
         self,
         image: str | bytes | Image.Image,
         prompt: str = "",
-        temperature: Optional[float] = None,
-        top_p: Optional[float] = None,
-        top_k: Optional[int] = None,
-        presence_penalty: Optional[float] = None,
-        frequency_penalty: Optional[float] = None,
-        repetition_penalty: Optional[float] = None,
-        no_repeat_ngram_size: Optional[int] = None,  # not supported by vllm
-        max_new_tokens: Optional[int] = None,
+        sampling_params: SamplingParams | None = None,
     ) -> str:
         if isinstance(image, str):
             image = await aio_load_resource(image)
@@ -175,33 +161,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
             add_generation_prompt=True,
         )
 
-        sp = self.build_sampling_params(
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            presence_penalty=presence_penalty,
-            frequency_penalty=frequency_penalty,
-            repetition_penalty=repetition_penalty,
-            no_repeat_ngram_size=no_repeat_ngram_size,
-            max_new_tokens=max_new_tokens,
-        )
-
-        vllm_sp_dict = {
-            "temperature": sp.temperature,
-            "top_p": sp.top_p,
-            "top_k": sp.top_k,
-            "presence_penalty": sp.presence_penalty,
-            "frequency_penalty": sp.frequency_penalty,
-            "repetition_penalty": sp.repetition_penalty,
-            # max_tokens should smaller than model max length
-            "max_tokens": sp.max_new_tokens if sp.max_new_tokens is not None else self.model_max_length,
-        }
-
-        vllm_sp = self.VllmSamplingParams(
-            **{k: v for k, v in vllm_sp_dict.items() if v is not None},
-            skip_special_tokens=False,
-            output_kind=self.VllmRequestOutputKind.FINAL_ONLY,
-        )
+        vllm_sp = self.build_vllm_sampling_params(sampling_params)
 
         last_output = None
         async for output in self.vllm_async_llm.generate(
@@ -218,43 +178,29 @@ class VllmAsyncEngineVlmClient(VlmClient):
 
     async def aio_batch_predict(
         self,
-        images: List[str] | List[bytes] | List[Image.Image],
-        prompts: Union[List[str], str] = "",
-        temperature: Optional[float] = None,
-        top_p: Optional[float] = None,
-        top_k: Optional[int] = None,
-        presence_penalty: Optional[float] = None,
-        frequency_penalty: Optional[float] = None,
-        repetition_penalty: Optional[float] = None,
-        no_repeat_ngram_size: Optional[int] = None,  # not supported by vllm
-        max_new_tokens: Optional[int] = None,
+        images: list[str] | list[bytes] | list[Image.Image],
+        prompts: list[str] | str = "",
+        sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         semaphore: asyncio.Semaphore | None = None,
-    ) -> List[str]:
+    ) -> list[str]:
         if not isinstance(prompts, list):
             prompts = [prompts] * len(images)
+        if not isinstance(sampling_params, Sequence):
+            sampling_params = [sampling_params] * len(images)
 
         assert len(prompts) == len(images), "Length of prompts and images must match."
+        assert len(sampling_params) == len(images), "Length of sampling_params and images must match."
 
         if semaphore is None:
             semaphore = asyncio.Semaphore(self.max_concurrency)
 
-        async def predict_with_semaphore(
-            image: str | bytes | Image.Image,
-            prompt: str,
-        ):
+        async def predict_with_semaphore(image: str | bytes | Image.Image, prompt: str, sampling_params: SamplingParams | None):
             async with semaphore:
                 return await self.aio_predict(
                     image=image,
                     prompt=prompt,
-                    temperature=temperature,
-                    top_p=top_p,
-                    top_k=top_k,
-                    presence_penalty=presence_penalty,
-                    frequency_penalty=frequency_penalty,
-                    repetition_penalty=repetition_penalty,
-                    no_repeat_ngram_size=no_repeat_ngram_size,
-                    max_new_tokens=max_new_tokens,
+                    sampling_params=sampling_params,
                 )
 
-        tasks = [predict_with_semaphore(*args) for args in zip(images, prompts)]
+        tasks = [predict_with_semaphore(*args) for args in zip(images, prompts, sampling_params)]
         return await asyncio.gather(*tasks)

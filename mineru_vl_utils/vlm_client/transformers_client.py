@@ -1,6 +1,7 @@
 import asyncio
 from io import BytesIO
-from typing import List, Optional, Union
+from itertools import groupby
+from typing import Sequence
 
 from PIL import Image
 from tqdm import tqdm
@@ -8,6 +9,7 @@ from tqdm import tqdm
 from .base_client import (
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_USER_PROMPT,
+    SamplingParams,
     UnsupportedError,
     VlmClient,
 )
@@ -21,14 +23,7 @@ class TransformersVlmClient(VlmClient):
         processor,  # transformers processor
         prompt: str = DEFAULT_USER_PROMPT,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
-        temperature: float | None = None,
-        top_p: float | None = None,
-        top_k: int | None = None,
-        presence_penalty: float | None = None,  # not supported by hf
-        frequency_penalty: float | None = None,  # not supported by hf
-        repetition_penalty: float | None = None,
-        no_repeat_ngram_size: int | None = None,
-        max_new_tokens: int | None = None,
+        sampling_params: SamplingParams | None = None,
         text_before_image: bool = False,
         allow_truncated_content: bool = False,
         batch_size: int = 0,
@@ -36,14 +31,7 @@ class TransformersVlmClient(VlmClient):
         super().__init__(
             prompt=prompt,
             system_prompt=system_prompt,
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            presence_penalty=presence_penalty,
-            frequency_penalty=frequency_penalty,
-            repetition_penalty=repetition_penalty,
-            no_repeat_ngram_size=no_repeat_ngram_size,
-            max_new_tokens=max_new_tokens,
+            sampling_params=sampling_params,
             text_before_image=text_before_image,
             allow_truncated_content=allow_truncated_content,
         )
@@ -98,61 +86,8 @@ class TransformersVlmClient(VlmClient):
         messages.append({"role": "user", "content": user_messages})
         return messages
 
-    def predict(
-        self,
-        image: str | bytes | Image.Image,
-        prompt: str = "",
-        temperature: Optional[float] = None,
-        top_p: Optional[float] = None,
-        top_k: Optional[int] = None,
-        presence_penalty: Optional[float] = None,  # not supported by hf
-        frequency_penalty: Optional[float] = None,  # not supported by hf
-        repetition_penalty: Optional[float] = None,
-        no_repeat_ngram_size: Optional[int] = None,
-        max_new_tokens: Optional[int] = None,
-        **kwargs,
-    ) -> str:
-        return self.batch_predict(
-            [image],  # type: ignore
-            [prompt],
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            presence_penalty=presence_penalty,
-            frequency_penalty=frequency_penalty,
-            repetition_penalty=repetition_penalty,
-            no_repeat_ngram_size=no_repeat_ngram_size,
-            max_new_tokens=max_new_tokens,
-            **kwargs,
-        )[0]
-
-    def batch_predict(
-        self,
-        images: List[str] | List[bytes] | List[Image.Image],
-        prompts: Union[List[str], str] = "",
-        temperature: Optional[float] = None,
-        top_p: Optional[float] = None,
-        top_k: Optional[int] = None,
-        presence_penalty: Optional[float] = None,  # not supported by hf
-        frequency_penalty: Optional[float] = None,  # not supported by hf
-        repetition_penalty: Optional[float] = None,
-        no_repeat_ngram_size: Optional[int] = None,
-        max_new_tokens: Optional[int] = None,
-        **kwargs,
-    ) -> List[str]:
-        if isinstance(prompts, list):
-            assert len(prompts) == len(images), "Length of prompts and images must match."
-
-        sp = self.build_sampling_params(
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            presence_penalty=presence_penalty,
-            frequency_penalty=frequency_penalty,
-            repetition_penalty=repetition_penalty,
-            no_repeat_ngram_size=no_repeat_ngram_size,
-            max_new_tokens=max_new_tokens,
-        )
+    def build_generate_kwargs(self, sampling_params: SamplingParams | None):
+        sp = self.build_sampling_params(sampling_params)
 
         do_sample = ((sp.temperature or 0.0) > 0.0) and ((sp.top_k or 1) > 1)
 
@@ -171,6 +106,33 @@ class TransformersVlmClient(VlmClient):
         else:  # set max_length when max_new_tokens is not set
             generate_kwargs["max_length"] = self.model_max_length
         generate_kwargs["do_sample"] = do_sample
+        return generate_kwargs
+
+    def predict(
+        self,
+        image: str | bytes | Image.Image,
+        prompt: str = "",
+        sampling_params: SamplingParams | None = None,
+        **kwargs,
+    ) -> str:
+        return self.batch_predict(
+            [image],  # type: ignore
+            [prompt],
+            [sampling_params],
+            **kwargs,
+        )[0]
+
+    def batch_predict(
+        self,
+        images: list[str] | list[bytes] | list[Image.Image],
+        prompts: list[str] | str = "",
+        sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
+        **kwargs,
+    ) -> list[str]:
+        if isinstance(prompts, list):
+            assert len(prompts) == len(images), "Length of prompts and images must match."
+        if isinstance(sampling_params, Sequence):
+            assert len(sampling_params) == len(images), "Length of sampling_params and images must match."
 
         image_objs: list[Image.Image] = []
         for image in images:
@@ -199,39 +161,49 @@ class TransformersVlmClient(VlmClient):
                 for prompt in prompts
             ]
 
+        if not isinstance(sampling_params, Sequence):
+            sampling_params = [sampling_params] * len(images)
+
         inputs = [
-            (image_obj.width * image_obj.height, idx, image_obj, chat_prompt)
-            for (idx, (image_obj, chat_prompt)) in enumerate(zip(image_objs, chat_prompts))
+            (args[0].width * args[0].height, idx, *args)
+            for (idx, args) in enumerate(zip(image_objs, chat_prompts, sampling_params))
         ]
+
+        # group inputs, because transformers don't support different params in one batch.
+        inputs_groups = {
+            params: [input[:-1] for input in group_inputs]
+            for params, group_inputs in groupby(inputs, key=lambda item: item[-1])
+        }
 
         outputs: list[str | None] = [None] * len(inputs)
         batch_size = max(1, self.batch_size)
 
-        if (batch_size > 1) and (len(inputs) > batch_size):
-            inputs.sort(key=lambda item: item[0])
-
         with tqdm(total=len(inputs), desc="Predict") as progress_bar:
-            for i in range(0, len(inputs), batch_size):
-                batch_inputs = inputs[i : i + batch_size]
-                batch_outputs = self._predict_one_batch(
-                    image_objs=[item[2] for item in batch_inputs],
-                    chat_prompts=[item[3] for item in batch_inputs],
-                    generate_kwargs=generate_kwargs,
-                    **kwargs,
-                )
-                for input, output in zip(batch_inputs, batch_outputs):
-                    idx = input[1]
-                    outputs[idx] = output
-                progress_bar.update(len(batch_outputs))
+            for params, group_inputs in inputs_groups.items():
+                if (batch_size > 1) and (len(group_inputs) > batch_size):
+                    group_inputs.sort(key=lambda item: item[0])
+
+                for i in range(0, len(group_inputs), batch_size):
+                    batch_inputs = group_inputs[i : i + batch_size]
+                    batch_outputs = self._predict_one_batch(
+                        image_objs=[item[2] for item in batch_inputs],
+                        chat_prompts=[item[3] for item in batch_inputs],
+                        sampling_params=params,
+                        **kwargs,
+                    )
+                    for input, output in zip(batch_inputs, batch_outputs):
+                        idx = input[1]
+                        outputs[idx] = output
+                    progress_bar.update(len(batch_outputs))
 
         assert all(output is not None for output in outputs)
         return outputs  # type: ignore
 
     def _predict_one_batch(
         self,
-        image_objs: List[Image.Image],
-        chat_prompts: List[str],
-        generate_kwargs: dict,
+        image_objs: list[Image.Image],
+        chat_prompts: list[str],
+        sampling_params: SamplingParams | None,
         **kwargs,
     ):
         inputs = self.processor(
@@ -241,6 +213,8 @@ class TransformersVlmClient(VlmClient):
             return_tensors="pt",
         )
         inputs = inputs.to(device=self.model.device, dtype=self.model.dtype)
+
+        generate_kwargs = self.build_generate_kwargs(sampling_params)
 
         output_ids = self.model.generate(
             **inputs,
@@ -265,14 +239,7 @@ class TransformersVlmClient(VlmClient):
         self,
         image: str | bytes | Image.Image,
         prompt: str = "",
-        temperature: Optional[float] = None,
-        top_p: Optional[float] = None,
-        top_k: Optional[int] = None,
-        presence_penalty: Optional[float] = None,  # not supported by hf
-        frequency_penalty: Optional[float] = None,  # not supported by hf
-        repetition_penalty: Optional[float] = None,
-        no_repeat_ngram_size: Optional[int] = None,
-        max_new_tokens: Optional[int] = None,
+        sampling_params: SamplingParams | None = None,
     ) -> str:
         raise UnsupportedError(
             "Asynchronous aio_predict() is not supported in TransformersVlmClient. Please use predict() instead."
@@ -280,18 +247,11 @@ class TransformersVlmClient(VlmClient):
 
     async def aio_batch_predict(
         self,
-        images: List[str] | List[bytes] | List[Image.Image],
-        prompts: Union[List[str], str] = "",
-        temperature: Optional[float] = None,
-        top_p: Optional[float] = None,
-        top_k: Optional[int] = None,
-        presence_penalty: Optional[float] = None,  # not supported by hf
-        frequency_penalty: Optional[float] = None,  # not supported by hf
-        repetition_penalty: Optional[float] = None,
-        no_repeat_ngram_size: Optional[int] = None,
-        max_new_tokens: Optional[int] = None,
+        images: list[str] | list[bytes] | list[Image.Image],
+        prompts: list[str] | str = "",
+        sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         semaphore: asyncio.Semaphore | None = None,
-    ) -> List[str]:
+    ) -> list[str]:
         raise UnsupportedError(
             "Asynchronous aio_batch_predict() is not supported in TransformersVlmClient. Please use batch_predict() instead."
         )
