@@ -11,19 +11,16 @@ from .structs import BLOCK_TYPES, ContentBlock
 from .vlm_client import DEFAULT_SYSTEM_PROMPT, new_vlm_client
 from .vlm_client.utils import get_rgb_image
 
-_coord_re = r"^(\d+)\s+(\d+)\s+(\d+)\s+(\d+)$"
 _layout_re = r"^<\|box_start\|>(\d+)\s+(\d+)\s+(\d+)\s+(\d+)<\|box_end\|><\|ref_start\|>(\w+?)<\|ref_end\|>(.*)$"
-_parsing_re = r"^\s*<\|box_start\|>(.+?)<\|box_end\|><\|ref_start\|>(.+?)<\|ref_end\|><\|md_start\|>(.*?)<\|md_end\|>\s*"
 
 DEFAULT_PROMPTS = {
     "table": "\nTable Recognition:",
     "equation": "\nFormula Recognition:",
+    "[default]": "\nText Recognition:",
     "[layout]": "\nLayout Detection:",
-    "[parsing]": "\nDocument Parsing:",
-    "[default]": "\nDocument Parsing:",
 }
 DEFAULT_TEMPERATURE = 0.0
-DEFAULT_TOP_P = 0.01
+TOP_P = 0.01
 DEFAULT_TOP_K = 1
 DEFAULT_REPETITION_PENALTY = 1.0
 DEFAULT_PRESENCE_PENALTY = 0.0
@@ -387,28 +384,6 @@ class MinerUClient:
         prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
         outputs = await self.client.aio_batch_predict(images, prompt, semaphore=semaphore)
         return await asyncio.gather(*[self.helper.aio_parse_layout_output(self.executor, out) for out in outputs])
-
-    def one_step_extract(self, image: Image.Image) -> list[ContentBlock]:
-        prompt = self.prompts.get("[parsing]") or self.prompts["[default]"]
-        output = self.client.predict(image, prompt)
-        blocks: list[ContentBlock] = []
-        while len(output) > 0:
-            match = re.search(_parsing_re, output, re.DOTALL)
-            if match is None:
-                break  # No more blocks found in the output
-            box_string = match.group(1).replace("<|txt_contd|>", "")
-            box_match = re.match(_coord_re, box_string.strip())
-            if box_match is None:
-                continue  # Invalid box format
-            bbox = _convert_bbox(box_match.groups())
-            if bbox is None:
-                continue  # Invalid bbox format
-            ref_type = match.group(2).replace("<|txt_contd|>", "").strip()
-            ref_type = ref_type.lower()
-            content = match.group(3)
-            blocks.append(ContentBlock(ref_type, bbox, content=content))
-            output = output[len(match.group(0)) :]
-        return self.helper.post_process(blocks)
 
     def two_step_extract(self, image: Image.Image) -> list[ContentBlock]:
         blocks = self.layout_detect(image)
