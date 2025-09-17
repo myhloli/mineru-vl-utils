@@ -19,13 +19,49 @@ DEFAULT_PROMPTS = {
     "[default]": "\nText Recognition:",
     "[layout]": "\nLayout Detection:",
 }
-DEFAULT_TEMPERATURE = 0.0
-DEFAULT_TOP_P = 0.01
-DEFAULT_TOP_K = 1
-DEFAULT_PRESENCE_PENALTY = 0.0
-DEFAULT_FREQUENCY_PENALTY = 0.0
-DEFAULT_REPETITION_PENALTY = 1.0
-DEFAULT_NO_REPEAT_NGRAM_SIZE = 100
+
+DEFAULT_SAMPLING_PARAMS = {
+    "table": SamplingParams(
+        temperature=0.0,
+        top_p=0.01,
+        top_k=1,
+        presence_penalty=0.0,
+        frequency_penalty=0.0,
+        repetition_penalty=1.0,
+        no_repeat_ngram_size=100,
+        max_new_tokens=None,
+    ),
+    "equation": SamplingParams(
+        temperature=0.0,
+        top_p=0.01,
+        top_k=1,
+        presence_penalty=0.0,
+        frequency_penalty=0.0,
+        repetition_penalty=1.0,
+        no_repeat_ngram_size=100,
+        max_new_tokens=None,
+    ),
+    "[default]": SamplingParams(
+        temperature=0.0,
+        top_p=0.01,
+        top_k=1,
+        presence_penalty=0.0,
+        frequency_penalty=0.0,
+        repetition_penalty=1.0,
+        no_repeat_ngram_size=100,
+        max_new_tokens=None,
+    ),
+    "[layout]": SamplingParams(
+        temperature=0.0,
+        top_p=0.01,
+        top_k=1,
+        presence_penalty=0.0,
+        frequency_penalty=0.0,
+        repetition_penalty=1.0,
+        no_repeat_ngram_size=100,
+        max_new_tokens=None,
+    ),
+}
 
 ANGLE_MAPPING = {
     "<|rotate_up|>": 0,
@@ -58,6 +94,7 @@ class MinerUClientHelper:
     def __init__(
         self,
         prompts: dict[str, str],
+        sampling_params: dict[str, SamplingParams],
         layout_image_size: tuple[int, int],
         min_image_edge: int,
         max_image_edge_ratio: float,
@@ -67,6 +104,7 @@ class MinerUClientHelper:
         debug: bool,
     ) -> None:
         self.prompts = prompts
+        self.sampling_params = sampling_params
         self.layout_image_size = layout_image_size
         self.min_image_edge = min_image_edge
         self.max_image_edge_ratio = max_image_edge_ratio
@@ -123,11 +161,12 @@ class MinerUClientHelper:
         self,
         image: Image.Image,
         blocks: list[ContentBlock],
-    ) -> tuple[list[Image.Image], list[str], list[int]]:
+    ) -> tuple[list[Image.Image], list[str], list[SamplingParams | None], list[int]]:
         image = get_rgb_image(image)
         width, height = image.size
         block_images: list[Image.Image] = []
         prompts: list[str] = []
+        sampling_params: list[SamplingParams | None] = []
         indices: list[int] = []
         for idx, block in enumerate(blocks):
             if block.type in ("image", "list", "equation_block"):
@@ -140,8 +179,10 @@ class MinerUClientHelper:
             block_images.append(self.resize_by_need(block_image))
             prompt = self.prompts.get(block.type) or self.prompts["[default]"]
             prompts.append(prompt)
+            params = self.sampling_params.get(block.type) or self.sampling_params.get("[default]")
+            sampling_params.append(params)
             indices.append(idx)
-        return block_images, prompts, indices
+        return block_images, prompts, sampling_params, indices
 
     def post_process(self, blocks: list[ContentBlock]) -> list[ContentBlock]:
         return post_process(
@@ -175,7 +216,7 @@ class MinerUClientHelper:
         executor: Executor | None,
         images: list[Image.Image],
         blocks_list: list[list[ContentBlock]],
-    ) -> list[tuple[list[Image.Image], list[str], list[int]]]:
+    ) -> list[tuple[list[Image.Image], list[str], list[SamplingParams | None], list[int]]]:
         if executor is None:
             return [self.prepare_for_extract(im, bls) for im, bls in zip(images, blocks_list)]
         return list(executor.map(self.prepare_for_extract, images, blocks_list))
@@ -210,7 +251,7 @@ class MinerUClientHelper:
         executor: Executor | None,
         image: Image.Image,
         blocks: list[ContentBlock],
-    ) -> tuple[list[Image.Image], list[str], list[int]]:
+    ) -> tuple[list[Image.Image], list[str], list[SamplingParams | None], list[int]]:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(executor, self.prepare_for_extract, image, blocks)
 
@@ -236,20 +277,13 @@ class MinerUClient:
         model_path: str | None = None,
         prompts: dict[str, str] = DEFAULT_PROMPTS,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
-        temperature: float | None = DEFAULT_TEMPERATURE,
-        top_p: float | None = DEFAULT_TOP_P,
-        top_k: int | None = DEFAULT_TOP_K,
-        presence_penalty: float | None = DEFAULT_PRESENCE_PENALTY,
-        frequency_penalty: float | None = DEFAULT_FREQUENCY_PENALTY,
-        repetition_penalty: float | None = DEFAULT_REPETITION_PENALTY,
-        no_repeat_ngram_size: int | None = DEFAULT_NO_REPEAT_NGRAM_SIZE,
+        sampling_params: dict[str, SamplingParams] = DEFAULT_SAMPLING_PARAMS,
         layout_image_size: tuple[int, int] = (1036, 1036),
         min_image_edge: int = 28,
         max_image_edge_ratio: float = 50,
         handle_equation_block: bool = True,
         abandon_list: bool = False,
         abandon_paratext: bool = False,
-        max_new_tokens: int | None = None,
         max_concurrency: int = 1024,
         executor: Executor | None = None,
         batch_size: int = 0,  # for transformers and vllm-engine
@@ -317,16 +351,6 @@ class MinerUClient:
             vllm_llm=vllm_llm,
             vllm_async_llm=vllm_async_llm,
             system_prompt=system_prompt,
-            sampling_params=SamplingParams(
-                temperature=temperature,
-                top_p=top_p,
-                top_k=top_k,
-                presence_penalty=presence_penalty,
-                frequency_penalty=frequency_penalty,
-                repetition_penalty=repetition_penalty,
-                no_repeat_ngram_size=no_repeat_ngram_size,
-                max_new_tokens=max_new_tokens,
-            ),
             allow_truncated_content=True,  # Allow truncated content for MinerU
             max_concurrency=max_concurrency,
             batch_size=batch_size,
@@ -335,6 +359,7 @@ class MinerUClient:
         )
         self.helper = MinerUClientHelper(
             prompts=prompts,
+            sampling_params=sampling_params,
             layout_image_size=layout_image_size,
             min_image_edge=min_image_edge,
             max_image_edge_ratio=max_image_edge_ratio,
@@ -345,6 +370,7 @@ class MinerUClient:
         )
         self.backend = backend
         self.prompts = prompts
+        self.sampling_params = sampling_params
         self.max_concurrency = max_concurrency
         self.executor = executor
 
@@ -356,13 +382,15 @@ class MinerUClient:
     def layout_detect(self, image: Image.Image) -> list[ContentBlock]:
         image = self.helper.prepare_for_layout(image)
         prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
-        output = self.client.predict(image, prompt)
+        params = self.sampling_params.get("[layout]") or self.sampling_params.get("[default]")
+        output = self.client.predict(image, prompt, params)
         return self.helper.parse_layout_output(output)
 
     def batch_layout_detect(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
         images = self.helper.batch_prepare_for_layout(self.executor, images)
         prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
-        outputs = self.client.batch_predict(images, prompt)
+        params = self.sampling_params.get("[layout]") or self.sampling_params.get("[default]")
+        outputs = self.client.batch_predict(images, prompt, params)
         return self.helper.batch_parse_layout_output(self.executor, outputs)
 
     async def aio_layout_detect(
@@ -372,11 +400,12 @@ class MinerUClient:
     ) -> list[ContentBlock]:
         image = await self.helper.aio_prepare_for_layout(self.executor, image)
         prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
+        params = self.sampling_params.get("[layout]") or self.sampling_params.get("[default]")
         if semaphore is None:
-            output = await self.client.aio_predict(image, prompt)
+            output = await self.client.aio_predict(image, prompt, params)
         else:
             async with semaphore:
-                output = await self.client.aio_predict(image, prompt)
+                output = await self.client.aio_predict(image, prompt, params)
         return await self.helper.aio_parse_layout_output(self.executor, output)
 
     async def aio_batch_layout_detect(
@@ -387,13 +416,14 @@ class MinerUClient:
         semaphore = semaphore or asyncio.Semaphore(self.max_concurrency)
         images = await asyncio.gather(*[self.helper.aio_prepare_for_layout(self.executor, im) for im in images])
         prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
-        outputs = await self.client.aio_batch_predict(images, prompt, semaphore=semaphore)
+        params = self.sampling_params.get("[layout]") or self.sampling_params.get("[default]")
+        outputs = await self.client.aio_batch_predict(images, prompt, params, semaphore=semaphore)
         return await asyncio.gather(*[self.helper.aio_parse_layout_output(self.executor, out) for out in outputs])
 
     def two_step_extract(self, image: Image.Image) -> list[ContentBlock]:
         blocks = self.layout_detect(image)
-        block_images, prompts, indices = self.helper.prepare_for_extract(image, blocks)
-        outputs = self.client.batch_predict(block_images, prompts)
+        block_images, prompts, params, indices = self.helper.prepare_for_extract(image, blocks)
+        outputs = self.client.batch_predict(block_images, prompts, params)
         for idx, output in zip(indices, outputs):
             blocks[idx].content = output
         return self.helper.post_process(blocks)
@@ -405,8 +435,8 @@ class MinerUClient:
     ) -> list[ContentBlock]:
         semaphore = semaphore or asyncio.Semaphore(self.max_concurrency)
         blocks = await self.aio_layout_detect(image, semaphore)
-        block_images, prompts, indices = await self.helper.aio_prepare_for_extract(self.executor, image, blocks)
-        outputs = await self.client.aio_batch_predict(block_images, prompts, semaphore=semaphore)
+        block_images, prompts, params, indices = await self.helper.aio_prepare_for_extract(self.executor, image, blocks)
+        outputs = await self.client.aio_batch_predict(block_images, prompts, params, semaphore=semaphore)
         for idx, output in zip(indices, outputs):
             blocks[idx].content = output
         return await self.helper.aio_post_process(self.executor, blocks)
@@ -436,13 +466,15 @@ class MinerUClient:
         blocks_list = self.batch_layout_detect(images)
         all_images: list[Image.Image] = []
         all_prompts: list[str] = []
+        all_params: list[SamplingParams | None] = []
         all_indices: list[tuple[int, int]] = []
         prepared_inputs = self.helper.batch_prepare_for_extract(self.executor, images, blocks_list)
-        for img_idx, (block_images, prompts, indices) in enumerate(prepared_inputs):
+        for img_idx, (block_images, prompts, params, indices) in enumerate(prepared_inputs):
             all_images.extend(block_images)
             all_prompts.extend(prompts)
+            all_params.extend(params)
             all_indices.extend([(img_idx, idx) for idx in indices])
-        outputs = self.client.batch_predict(all_images, all_prompts)
+        outputs = self.client.batch_predict(all_images, all_prompts, all_params)
         for (img_idx, idx), output in zip(all_indices, outputs):
             blocks_list[img_idx][idx].content = output
         return self.helper.batch_post_process(self.executor, blocks_list)
@@ -456,14 +488,16 @@ class MinerUClient:
         blocks_list = await self.aio_batch_layout_detect(images, semaphore)
         all_images: list[Image.Image] = []
         all_prompts: list[str] = []
+        all_params: list[SamplingParams | None] = []
         all_indices: list[tuple[int, int]] = []
         tasks = [self.helper.aio_prepare_for_extract(self.executor, im, bls) for im, bls in zip(images, blocks_list)]
         prepared_inputs = await asyncio.gather(*tasks)
-        for img_idx, (block_images, prompts, indices) in enumerate(prepared_inputs):
+        for img_idx, (block_images, prompts, params, indices) in enumerate(prepared_inputs):
             all_images.extend(block_images)
             all_prompts.extend(prompts)
+            all_params.extend(params)
             all_indices.extend([(img_idx, idx) for idx in indices])
-        outputs = await self.client.aio_batch_predict(all_images, all_prompts, semaphore=semaphore)
+        outputs = await self.client.aio_batch_predict(all_images, all_prompts, all_params, semaphore=semaphore)
         for (img_idx, idx), output in zip(all_indices, outputs):
             blocks_list[img_idx][idx].content = output
         return await asyncio.gather(*[self.helper.aio_post_process(self.executor, blocks) for blocks in blocks_list])

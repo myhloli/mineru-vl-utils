@@ -169,17 +169,16 @@ class TransformersVlmClient(VlmClient):
             for (idx, args) in enumerate(zip(image_objs, chat_prompts, sampling_params))
         ]
 
-        # group inputs, because transformers don't support different params in one batch.
-        inputs_groups = {
-            params: [input[:-1] for input in group_inputs]
-            for params, group_inputs in groupby(inputs, key=lambda item: item[-1])
-        }
-
         outputs: list[str | None] = [None] * len(inputs)
         batch_size = max(1, self.batch_size)
 
         with tqdm(total=len(inputs), desc="Predict") as progress_bar:
-            for params, group_inputs in inputs_groups.items():
+
+            # group inputs by sampling_params, because transformers
+            # don't support different params in one batch.
+            for params, group_inputs in groupby(inputs, key=lambda item: item[-1]):
+                group_inputs = [input[:-1] for input in group_inputs]
+
                 if (batch_size > 1) and (len(group_inputs) > batch_size):
                     group_inputs.sort(key=lambda item: item[0])
 
