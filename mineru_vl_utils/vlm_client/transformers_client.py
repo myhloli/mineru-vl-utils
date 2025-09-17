@@ -199,23 +199,33 @@ class TransformersVlmClient(VlmClient):
                 for prompt in prompts
             ]
 
-        outputs = []
+        inputs = [
+            (image_obj.width * image_obj.height, idx, image_obj, chat_prompt)
+            for (idx, (image_obj, chat_prompt)) in enumerate(zip(image_objs, chat_prompts))
+        ]
+
+        outputs: list[str | None] = [None] * len(inputs)
         batch_size = max(1, self.batch_size)
 
-        with tqdm(total=len(images), desc="Predict") as progress_bar:
-            for i in range(0, len(images), batch_size):
-                batch_image_objs = image_objs[i : i + batch_size]
-                batch_chat_prompts = chat_prompts[i : i + batch_size]
+        if (batch_size > 1) and (len(inputs) > batch_size):
+            inputs.sort(key=lambda item: item[0])
+
+        with tqdm(total=len(inputs), desc="Predict") as progress_bar:
+            for i in range(0, len(inputs), batch_size):
+                batch_inputs = inputs[i : i + batch_size]
                 batch_outputs = self._predict_one_batch(
-                    batch_image_objs,
-                    batch_chat_prompts,
-                    generate_kwargs,
+                    image_objs=[item[2] for item in batch_inputs],
+                    chat_prompts=[item[3] for item in batch_inputs],
+                    generate_kwargs=generate_kwargs,
                     **kwargs,
                 )
-                outputs.extend(batch_outputs)
-                progress_bar.update(len(batch_image_objs))
+                for input, output in zip(batch_inputs, batch_outputs):
+                    idx = input[1]
+                    outputs[idx] = output
+                progress_bar.update(len(batch_outputs))
 
-        return outputs
+        assert all(output is not None for output in outputs)
+        return outputs  # type: ignore
 
     def _predict_one_batch(
         self,
