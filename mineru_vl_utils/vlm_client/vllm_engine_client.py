@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, List, Optional, Union
 
 if TYPE_CHECKING:
     from vllm.outputs import RequestOutput
+    from vllm.sampling_params import SamplingParams
 
 from PIL import Image
 
@@ -32,6 +33,7 @@ class VllmEngineVlmClient(VlmClient):
         max_new_tokens: int | None = None,
         text_before_image: bool = False,
         allow_truncated_content: bool = False,
+        batch_size: int = 0,
     ):
         super().__init__(
             prompt=prompt,
@@ -61,6 +63,7 @@ class VllmEngineVlmClient(VlmClient):
         self.tokenizer = vllm_llm.get_tokenizer()
         self.model_max_length = vllm_llm.llm_engine.model_config.max_model_len
         self.VllmSamplingParams = SamplingParams
+        self.batch_size = batch_size
 
     def build_messages(self, prompt: str) -> list[dict]:
         prompt = prompt or self.prompt
@@ -180,7 +183,7 @@ class VllmEngineVlmClient(VlmClient):
             # max_tokens should smaller than model max length
             vllm_sp_dict["max_tokens"] = self.model_max_length
 
-        vllm_sp = self.VllmSamplingParams(
+        vllm_sampling_params = self.VllmSamplingParams(
             **{k: v for k, v in vllm_sp_dict.items() if v is not None},
             skip_special_tokens=False,
         )
@@ -212,6 +215,27 @@ class VllmEngineVlmClient(VlmClient):
                 for prompt in prompts
             ]
 
+        outputs = []
+        batch_size = self.batch_size if self.batch_size > 0 else len(images)
+
+        for i in range(0, len(images), batch_size):
+            batch_image_objs = image_objs[i : i + batch_size]
+            batch_chat_prompts = chat_prompts[i : i + batch_size]
+            batch_outputs = self._predict_one_batch(
+                batch_image_objs,
+                batch_chat_prompts,
+                vllm_sampling_params,
+            )
+            outputs.extend(batch_outputs)
+
+        return outputs
+
+    def _predict_one_batch(
+        self,
+        image_objs: List[Image.Image],
+        chat_prompts: List[str],
+        vllm_sampling_params: "SamplingParams",
+    ):
         vllm_prompts = [
             {"prompt": chat_prompt, "multi_modal_data": {"image": image}}
             for chat_prompt, image in zip(chat_prompts, image_objs)
@@ -219,7 +243,7 @@ class VllmEngineVlmClient(VlmClient):
 
         outputs = self.vllm_llm.generate(
             prompts=vllm_prompts,  # type: ignore
-            sampling_params=vllm_sp,
+            sampling_params=vllm_sampling_params,
         )
 
         return [self.get_output_content(output) for output in outputs]

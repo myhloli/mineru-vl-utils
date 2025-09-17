@@ -25,7 +25,7 @@ class TransformersVlmClient(VlmClient):
         max_new_tokens: int | None = None,
         text_before_image: bool = False,
         allow_truncated_content: bool = False,
-        batch_size: int = 1,
+        batch_size: int = 0,
     ):
         super().__init__(
             prompt=prompt,
@@ -40,8 +40,6 @@ class TransformersVlmClient(VlmClient):
             text_before_image=text_before_image,
             allow_truncated_content=allow_truncated_content,
         )
-        self.batch_size = max(1, batch_size)
-
         if not model:
             raise ValueError("Model is None.")
         if not hasattr(model, "generate"):
@@ -66,6 +64,7 @@ class TransformersVlmClient(VlmClient):
                     skip_token_ids.add(token_id)
 
         self.skip_token_ids = skip_token_ids
+        self.batch_size = batch_size
 
     def build_messages(self, prompt: str) -> list[dict]:
         prompt = prompt or self.prompt
@@ -190,11 +189,12 @@ class TransformersVlmClient(VlmClient):
             ]
 
         outputs = []
+        batch_size = max(1, self.batch_size)
 
         with tqdm(total=len(images), desc="Predict") as progress_bar:
-            for i in range(0, len(images), self.batch_size):
-                batch_image_objs = image_objs[i : i + self.batch_size]
-                batch_chat_prompts = chat_prompts[i : i + self.batch_size]
+            for i in range(0, len(images), batch_size):
+                batch_image_objs = image_objs[i : i + batch_size]
+                batch_chat_prompts = chat_prompts[i : i + batch_size]
                 batch_outputs = self._predict_one_batch(
                     batch_image_objs,
                     batch_chat_prompts,

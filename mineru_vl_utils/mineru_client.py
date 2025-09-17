@@ -253,7 +253,7 @@ class MinerUClient:
         max_new_tokens: int | None = None,
         max_concurrency: int = 100,
         executor: Executor | None = None,
-        batch_size: int = 1,  # for transformers backend only
+        batch_size: int = 0,  # for transformers and vllm-engine
         http_timeout: int = 600,  # for http-client backend only
         debug: bool = False,
     ) -> None:
