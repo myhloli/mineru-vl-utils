@@ -43,6 +43,7 @@ class HttpVlmClient(VlmClient):
         max_new_tokens: int | None = None,
         text_before_image: bool = False,
         allow_truncated_content: bool = False,
+        max_concurrency: int = 1024,
         http_timeout: int = 600,
         debug: bool = False,
     ) -> None:
@@ -59,6 +60,7 @@ class HttpVlmClient(VlmClient):
             text_before_image=text_before_image,
             allow_truncated_content=allow_truncated_content,
         )
+        self.max_concurrency = max_concurrency
         self.http_timeout = http_timeout
         self.debug = debug
 
@@ -293,7 +295,6 @@ class HttpVlmClient(VlmClient):
         presence_penalty: Optional[float] = None,
         no_repeat_ngram_size: Optional[int] = None,
         max_new_tokens: Optional[int] = None,
-        max_concurrency: int = 100,
     ) -> List[str]:
         try:
             loop = asyncio.get_running_loop()
@@ -310,7 +311,6 @@ class HttpVlmClient(VlmClient):
             presence_penalty=presence_penalty,
             no_repeat_ngram_size=no_repeat_ngram_size,
             max_new_tokens=max_new_tokens,
-            max_concurrency=max_concurrency,
         )
 
         if loop is not None:
@@ -481,24 +481,23 @@ class HttpVlmClient(VlmClient):
         presence_penalty: Optional[float] = None,
         no_repeat_ngram_size: Optional[int] = None,
         max_new_tokens: Optional[int] = None,
-        max_concurrency: int = 100,
+        semaphore: asyncio.Semaphore | None = None,
     ) -> List[str]:
         if not isinstance(prompts, list):
             prompts = [prompts] * len(images)
 
         assert len(prompts) == len(images), "Length of prompts and images must match."
 
-        semaphore = asyncio.Semaphore(max_concurrency)
-        outputs = [""] * len(images)
+        if semaphore is None:
+            semaphore = asyncio.Semaphore(self.max_concurrency)
 
         async def predict_with_semaphore(
-            idx: int,
             image: str | bytes | Image.Image,
             prompt: str,
             async_client: httpx.AsyncClient,
         ):
             async with semaphore:
-                output = await self.aio_predict(
+                return await self.aio_predict(
                     image=image,
                     prompt=prompt,
                     temperature=temperature,
@@ -510,15 +509,10 @@ class HttpVlmClient(VlmClient):
                     max_new_tokens=max_new_tokens,
                     async_client=async_client,
                 )
-                outputs[idx] = output
 
         async with httpx.AsyncClient(timeout=self.http_timeout) as client:
-            tasks = []
-            for idx, (prompt, image) in enumerate(zip(prompts, images)):
-                tasks.append(predict_with_semaphore(idx, image, prompt, client))
-            await asyncio.gather(*tasks)
-
-        return outputs
+            tasks = [predict_with_semaphore(*args, client) for args in zip(images, prompts)]
+            return await asyncio.gather(*tasks)
 
     async def aio_batch_predict_as_iter(
         self,
@@ -531,14 +525,15 @@ class HttpVlmClient(VlmClient):
         presence_penalty: Optional[float] = None,
         no_repeat_ngram_size: Optional[int] = None,
         max_new_tokens: Optional[int] = None,
-        max_concurrency: int = 100,
+        semaphore: asyncio.Semaphore | None = None,
     ) -> AsyncIterable[Tuple[int, str]]:
         if not isinstance(prompts, list):
             prompts = [prompts] * len(images)
 
         assert len(prompts) == len(images), "Length of prompts and images must match."
 
-        semaphore = asyncio.Semaphore(max_concurrency)
+        if semaphore is None:
+            semaphore = asyncio.Semaphore(self.max_concurrency)
 
         async def predict_with_semaphore(
             idx: int,

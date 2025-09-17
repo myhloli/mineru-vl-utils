@@ -5,8 +5,13 @@ from typing import List, Optional, Union
 from PIL import Image
 from tqdm import tqdm
 
-from .base_client import DEFAULT_SYSTEM_PROMPT, DEFAULT_USER_PROMPT, VlmClient
-from .utils import aio_load_resource, get_rgb_image, load_resource
+from .base_client import (
+    DEFAULT_SYSTEM_PROMPT,
+    DEFAULT_USER_PROMPT,
+    UnsupportedError,
+    VlmClient,
+)
+from .utils import get_rgb_image, load_resource
 
 
 class TransformersVlmClient(VlmClient):
@@ -252,19 +257,8 @@ class TransformersVlmClient(VlmClient):
         no_repeat_ngram_size: Optional[int] = None,
         max_new_tokens: Optional[int] = None,
     ) -> str:
-        if isinstance(image, str):
-            image = await aio_load_resource(image)
-        return await asyncio.to_thread(
-            self.predict,
-            image,
-            prompt,
-            temperature,
-            top_p,
-            top_k,
-            repetition_penalty,
-            presence_penalty,
-            no_repeat_ngram_size,
-            max_new_tokens,
+        raise UnsupportedError(
+            "Asynchronous aio_predict() is not supported in TransformersVlmClient. Please use predict() instead."
         )
 
     async def aio_batch_predict(
@@ -278,16 +272,8 @@ class TransformersVlmClient(VlmClient):
         presence_penalty: Optional[float] = None,
         no_repeat_ngram_size: Optional[int] = None,
         max_new_tokens: Optional[int] = None,
+        semaphore: asyncio.Semaphore | None = None,
     ) -> List[str]:
-        return await asyncio.to_thread(
-            self.batch_predict,
-            images,
-            prompts,
-            temperature,
-            top_p,
-            top_k,
-            repetition_penalty,
-            presence_penalty,
-            no_repeat_ngram_size,
-            max_new_tokens,
+        raise UnsupportedError(
+            "Asynchronous aio_batch_predict() is not supported in TransformersVlmClient. Please use batch_predict() instead."
         )

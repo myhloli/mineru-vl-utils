@@ -13,9 +13,10 @@ from .base_client import (
     DEFAULT_USER_PROMPT,
     RequestError,
     ServerError,
+    UnsupportedError,
     VlmClient,
 )
-from .utils import aio_load_resource, get_rgb_image, load_resource
+from .utils import get_rgb_image, load_resource
 
 
 class VllmEngineVlmClient(VlmClient):
@@ -257,22 +258,11 @@ class VllmEngineVlmClient(VlmClient):
         top_k: Optional[int] = None,
         repetition_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
-        no_repeat_ngram_size: Optional[int] = None,  # not supported by vllm
+        no_repeat_ngram_size: Optional[int] = None,
         max_new_tokens: Optional[int] = None,
     ) -> str:
-        if isinstance(image, str):
-            image = await aio_load_resource(image)
-        return await asyncio.to_thread(
-            self.predict,
-            image,
-            prompt,
-            temperature,
-            top_p,
-            top_k,
-            repetition_penalty,
-            presence_penalty,
-            no_repeat_ngram_size,
-            max_new_tokens,
+        raise UnsupportedError(
+            "Asynchronous aio_predict() is not supported in TransformersVlmClient. Please use predict() instead."
         )
 
     async def aio_batch_predict(
@@ -284,18 +274,10 @@ class VllmEngineVlmClient(VlmClient):
         top_k: Optional[int] = None,
         repetition_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
-        no_repeat_ngram_size: Optional[int] = None,  # not supported by vllm
+        no_repeat_ngram_size: Optional[int] = None,
         max_new_tokens: Optional[int] = None,
+        semaphore: asyncio.Semaphore | None = None,
     ) -> List[str]:
-        return await asyncio.to_thread(
-            self.batch_predict,
-            images,
-            prompts,
-            temperature,
-            top_p,
-            top_k,
-            repetition_penalty,
-            presence_penalty,
-            no_repeat_ngram_size,
-            max_new_tokens,
+        raise UnsupportedError(
+            "Asynchronous aio_batch_predict() is not supported in TransformersVlmClient. Please use batch_predict() instead."
         )

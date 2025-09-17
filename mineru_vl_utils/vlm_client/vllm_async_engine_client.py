@@ -34,6 +34,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
         max_new_tokens: int | None = None,
         text_before_image: bool = False,
         allow_truncated_content: bool = False,
+        max_concurrency: int = 1024,
     ):
         super().__init__(
             prompt=prompt,
@@ -66,6 +67,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
         self.model_max_length = vllm_async_llm.model_config.max_model_len
         self.VllmSamplingParams = SamplingParams
         self.VllmRequestOutputKind = RequestOutputKind
+        self.max_concurrency = max_concurrency
 
     def build_messages(self, prompt: str) -> list[dict]:
         prompt = prompt or self.prompt
@@ -138,7 +140,6 @@ class VllmAsyncEngineVlmClient(VlmClient):
         presence_penalty: Optional[float] = None,
         no_repeat_ngram_size: Optional[int] = None,  # not supported by vllm
         max_new_tokens: Optional[int] = None,
-        max_concurrency: int = 100,
     ) -> List[str]:
         raise UnsupportedError(
             "Synchronous batch_predict() is not supported in VllmAsyncEngineVlmClient. "
@@ -234,14 +235,15 @@ class VllmAsyncEngineVlmClient(VlmClient):
         presence_penalty: Optional[float] = None,
         no_repeat_ngram_size: Optional[int] = None,  # not supported by vllm
         max_new_tokens: Optional[int] = None,
-        max_concurrency: int = 100,
+        semaphore: asyncio.Semaphore | None = None,
     ) -> List[str]:
         if not isinstance(prompts, list):
             prompts = [prompts] * len(images)
 
         assert len(prompts) == len(images), "Length of prompts and images must match."
 
-        semaphore = asyncio.Semaphore(max_concurrency)
+        if semaphore is None:
+            semaphore = asyncio.Semaphore(self.max_concurrency)
 
         async def predict_with_semaphore(
             image: str | bytes | Image.Image,

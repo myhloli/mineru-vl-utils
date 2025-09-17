@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass
 from typing import List, Literal, Optional, Union
 
@@ -146,6 +147,7 @@ class VlmClient:
         presence_penalty: Optional[float] = None,
         no_repeat_ngram_size: Optional[int] = None,
         max_new_tokens: Optional[int] = None,
+        semaphore: asyncio.Semaphore | None = None,
     ) -> List[str]:
         raise NotImplementedError()
 
@@ -169,6 +171,7 @@ def new_vlm_client(
     max_new_tokens: int | None = None,
     text_before_image: bool = False,
     allow_truncated_content: bool = False,
+    max_concurrency: int = 1024,
     batch_size: int = 0,
     http_timeout: int = 600,
     debug: bool = False,
@@ -191,6 +194,7 @@ def new_vlm_client(
             max_new_tokens=max_new_tokens,
             text_before_image=text_before_image,
             allow_truncated_content=allow_truncated_content,
+            max_concurrency=max_concurrency,
             http_timeout=http_timeout,
             debug=debug,
         )
@@ -250,6 +254,7 @@ def new_vlm_client(
             max_new_tokens=max_new_tokens,
             text_before_image=text_before_image,
             allow_truncated_content=allow_truncated_content,
+            max_concurrency=max_concurrency,
         )
 
     else:

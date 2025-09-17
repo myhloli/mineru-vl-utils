@@ -251,7 +251,7 @@ class MinerUClient:
         abandon_list: bool = False,
         abandon_paratext: bool = False,
         max_new_tokens: int | None = None,
-        max_concurrency: int = 100,
+        max_concurrency: int = 1024,
         executor: Executor | None = None,
         batch_size: int = 0,  # for transformers and vllm-engine
         http_timeout: int = 600,  # for http-client backend only
@@ -326,6 +326,7 @@ class MinerUClient:
             no_repeat_ngram_size=no_repeat_ngram_size,
             max_new_tokens=max_new_tokens,
             allow_truncated_content=True,  # Allow truncated content for MinerU
+            max_concurrency=max_concurrency,
             batch_size=batch_size,
             http_timeout=http_timeout,
             debug=debug,
@@ -362,16 +363,29 @@ class MinerUClient:
         outputs = self.client.batch_predict(images, prompt)
         return self.helper.batch_parse_layout_output(self.executor, outputs)
 
-    async def aio_layout_detect(self, image: Image.Image) -> list[ContentBlock]:
+    async def aio_layout_detect(
+        self,
+        image: Image.Image,
+        semaphore: asyncio.Semaphore | None = None,
+    ) -> list[ContentBlock]:
         image = await self.helper.aio_prepare_for_layout(self.executor, image)
         prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
-        output = await self.client.aio_predict(image, prompt)
+        if semaphore is None:
+            output = await self.client.aio_predict(image, prompt)
+        else:
+            async with semaphore:
+                output = await self.client.aio_predict(image, prompt)
         return await self.helper.aio_parse_layout_output(self.executor, output)
 
-    async def aio_batch_layout_detect(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
+    async def aio_batch_layout_detect(
+        self,
+        images: list[Image.Image],
+        semaphore: asyncio.Semaphore | None = None,
+    ) -> list[list[ContentBlock]]:
+        semaphore = semaphore or asyncio.Semaphore(self.max_concurrency)
         images = await asyncio.gather(*[self.helper.aio_prepare_for_layout(self.executor, im) for im in images])
         prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
-        outputs = await self.client.aio_batch_predict(images, prompt)
+        outputs = await self.client.aio_batch_predict(images, prompt, semaphore=semaphore)
         return await asyncio.gather(*[self.helper.aio_parse_layout_output(self.executor, out) for out in outputs])
 
     def one_step_extract(self, image: Image.Image) -> list[ContentBlock]:
@@ -404,10 +418,15 @@ class MinerUClient:
             blocks[idx].content = output
         return self.helper.post_process(blocks)
 
-    async def aio_two_step_extract(self, image: Image.Image) -> list[ContentBlock]:
-        blocks = await self.aio_layout_detect(image)
+    async def aio_two_step_extract(
+        self,
+        image: Image.Image,
+        semaphore: asyncio.Semaphore | None = None,
+    ) -> list[ContentBlock]:
+        semaphore = semaphore or asyncio.Semaphore(self.max_concurrency)
+        blocks = await self.aio_layout_detect(image, semaphore)
         block_images, prompts, indices = await self.helper.aio_prepare_for_extract(self.executor, image, blocks)
-        outputs = await self.client.aio_batch_predict(block_images, prompts)
+        outputs = await self.client.aio_batch_predict(block_images, prompts, semaphore=semaphore)
         for idx, output in zip(indices, outputs):
             blocks[idx].content = output
         return await self.helper.aio_post_process(self.executor, blocks)
@@ -425,14 +444,13 @@ class MinerUClient:
         else:
             return asyncio.run(task)
 
-    async def aio_concurrent_two_step_extract(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
-        semaphore = asyncio.Semaphore(self.max_concurrency)
-
-        async def extract_with_semaphore(image: Image.Image):
-            async with semaphore:
-                return await self.aio_two_step_extract(image=image)
-
-        return await asyncio.gather(*[extract_with_semaphore(im) for im in images])
+    async def aio_concurrent_two_step_extract(
+        self,
+        images: list[Image.Image],
+        semaphore: asyncio.Semaphore | None = None,
+    ) -> list[list[ContentBlock]]:
+        semaphore = semaphore or asyncio.Semaphore(self.max_concurrency)
+        return await asyncio.gather(*[self.aio_two_step_extract(im, semaphore) for im in images])
 
     def stepping_two_step_extract(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
         blocks_list = self.batch_layout_detect(images)
@@ -449,8 +467,13 @@ class MinerUClient:
             blocks_list[img_idx][idx].content = output
         return self.helper.batch_post_process(self.executor, blocks_list)
 
-    async def aio_stepping_two_step_extract(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
-        blocks_list = await self.aio_batch_layout_detect(images)
+    async def aio_stepping_two_step_extract(
+        self,
+        images: list[Image.Image],
+        semaphore: asyncio.Semaphore | None = None,
+    ) -> list[list[ContentBlock]]:
+        semaphore = semaphore or asyncio.Semaphore(self.max_concurrency)
+        blocks_list = await self.aio_batch_layout_detect(images, semaphore)
         all_images: list[Image.Image] = []
         all_prompts: list[str] = []
         all_indices: list[tuple[int, int]] = []
@@ -460,7 +483,7 @@ class MinerUClient:
             all_images.extend(block_images)
             all_prompts.extend(prompts)
             all_indices.extend([(img_idx, idx) for idx in indices])
-        outputs = await self.client.aio_batch_predict(all_images, all_prompts)
+        outputs = await self.client.aio_batch_predict(all_images, all_prompts, semaphore=semaphore)
         for (img_idx, idx), output in zip(all_indices, outputs):
             blocks_list[img_idx][idx].content = output
         return await asyncio.gather(*[self.helper.aio_post_process(self.executor, blocks) for blocks in blocks_list])
@@ -471,8 +494,13 @@ class MinerUClient:
         else:  # self.batching_mode == "stepping"
             return self.stepping_two_step_extract(images)
 
-    async def aio_batch_two_step_extract(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
+    async def aio_batch_two_step_extract(
+        self,
+        images: list[Image.Image],
+        semaphore: asyncio.Semaphore | None = None,
+    ) -> list[list[ContentBlock]]:
+        semaphore = semaphore or asyncio.Semaphore(self.max_concurrency)
         if self.batching_mode == "concurrent":
-            return await self.aio_concurrent_two_step_extract(images)
+            return await self.aio_concurrent_two_step_extract(images, semaphore)
         else:  # self.batching_mode == "stepping"
-            return await self.aio_stepping_two_step_extract(images)
+            return await self.aio_stepping_two_step_extract(images, semaphore)
