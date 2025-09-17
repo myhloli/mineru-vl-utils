@@ -13,7 +13,7 @@ class BlockType:
     PAGE_NUMBER = "page_number"  # 页码
     PAGE_FOOTNOTE = "page_footnote"  # 脚注
     ASIDE_TEXT = "aside_text"  # 侧栏文本(装订线等)
-    EQUATION = "equation"  # 公式(独立或行内)
+    EQUATION = "equation"  # 公式(独立公式)
     EQUATION_BLOCK = "equation_block"  # 公式块(多行公式)
     REF_TEXT = "ref_text"  # 参考文献(一条)
     LIST = "list"  # 列表块(无序/有序列表)
@@ -56,44 +56,24 @@ BLOCK_TYPES = set(
     ]
 )
 
-
-CONTENT_FORMATS = set(
-    [
-        "text",
-        "markdown",
-        "html",  # for table
-        "latex",
-        "csv",
-        "otsl",  # for table
-    ]
-)
-
-ANGLE_OPTIONS = set(
-    [
-        None,
-        0,
-        90,
-        180,
-        270,
-    ]
-)
+ANGLE_OPTIONS = set([None, 0, 90, 180, 270])
 
 
-class LayoutBlock(dict):
+class ContentBlock(dict):
     def __init__(
         self,
         type: str,
         bbox: list[float],
         angle: Literal[None, 0, 90, 180, 270] = None,
-        score: float | None = None,
-        block_tags: list[str] | None = None,
+        content: str | None = None,
     ):
         """
         Initialize a layout block.
         Args:
             type (str): Type of the block (e.g., 'text', 'image', 'table').
             bbox (list[float]): Bounding box coordinates [xmin, ymin, xmax, ymax].
-            score (float | None): Confidence score for the detection, optional.
+            angle (int or None): Rotation angle of the block. Must be one of {None, 0, 90, 180, 270}.
+            content (str or None): The content of the block (if exists).
         """
         super().__init__()
 
@@ -104,15 +84,12 @@ class LayoutBlock(dict):
         assert bbox[0] < bbox[2], "Bounding box x1 must be less than x2"
         assert bbox[1] < bbox[3], "Bounding box y1 must be less than y2"
         assert angle in ANGLE_OPTIONS, f"Invalid angle: {angle}. Must be one of {ANGLE_OPTIONS}"
-        assert score is None or (0 < score <= 1), "Score must be None or in the range (0, 1]"
-        assert block_tags is None or isinstance(block_tags, list), "Block tags must be a list or None"
-        assert all(isinstance(tag, str) for tag in block_tags or []), "All block tags must be strings"
+        assert content is None or isinstance(content, str), "Content must be a string or None"
 
         self["type"] = type
         self["bbox"] = bbox
         self["angle"] = angle
-        self["score"] = score
-        self["block_tags"] = block_tags
+        self["content"] = content
 
     @property
     def type(self) -> str:
@@ -146,58 +123,6 @@ class LayoutBlock(dict):
         self["angle"] = value
 
     @property
-    def score(self) -> float | None:
-        return self["score"]
-
-    @score.setter
-    def score(self, value: float | None):
-        assert value is None or (0 < value <= 1), "Score must be None or in the range (0, 1]"
-        self["score"] = value
-
-    @property
-    def block_tags(self) -> list[str] | None:
-        return self["block_tags"]
-
-    @block_tags.setter
-    def block_tags(self, value: list[str] | None):
-        assert value is None or isinstance(value, list), "Block tags must be a list or None"
-        assert all(isinstance(tag, str) for tag in value or []), "All block tags must be strings"
-        self["block_tags"] = value
-
-
-class ContentBlock(LayoutBlock):
-    def __init__(
-        self,
-        type: str,
-        bbox: list[float],
-        angle: Literal[None, 0, 90, 180, 270] = None,
-        score: float | None = None,
-        content: str | None = None,
-        format: str | None = None,
-        block_tags: list[str] | None = None,
-        content_tags: list[str] | None = None,
-    ):
-        """
-        Initialize a content block.
-        Args:
-            type (str): Type of the block (e.g., 'text', 'image', 'table').
-            bbox (list[float]): Bounding box coordinates [xmin, ymin, xmax, ymax].
-            content (str): The content of the block.
-            score (float | None): Confidence score for the detection, optional.
-            format (str): Format of the content, default is 'markdown'.
-        """
-        super().__init__(type, bbox, angle, score, block_tags)
-
-        assert content is None or isinstance(content, str), "Content must be a string or None"
-        assert format is None or format in CONTENT_FORMATS, f"Unknown content format: {format}"
-        assert content_tags is None or isinstance(content_tags, list), "Content tags must be a list or None"
-        assert all(isinstance(tag, str) for tag in content_tags or []), "All content tags must be strings"
-
-        self["content"] = content
-        self["format"] = format
-        self["content_tags"] = content_tags
-
-    @property
     def content(self) -> str | None:
         return self["content"]
 
@@ -205,22 +130,3 @@ class ContentBlock(LayoutBlock):
     def content(self, value: str | None):
         assert value is None or isinstance(value, str), "Content must be a string or None"
         self["content"] = value
-
-    @property
-    def format(self) -> str | None:
-        return self["format"]
-
-    @format.setter
-    def format(self, value: str | None):
-        assert value is None or value in CONTENT_FORMATS, f"Unknown content format: {value}"
-        self["format"] = value
-
-    @property
-    def content_tags(self) -> list[str] | None:
-        return self["content_tags"]
-
-    @content_tags.setter
-    def content_tags(self, value: list[str] | None):
-        assert value is None or isinstance(value, list), "Content tags must be a list or None"
-        assert all(isinstance(tag, str) for tag in value or []), "All content tags must be strings"
-        self["content_tags"] = value
