@@ -2,6 +2,7 @@ from ..structs import ContentBlock
 from .equation_block import do_handle_equation_block
 from .equation_double_subscript import try_fix_equation_double_subscript
 from .equation_fix_eqqcolon import try_fix_equation_eqqcolon
+from .equation_big import try_fix_equation_big
 from .equation_left_right import try_match_equation_left_right
 from .otsl2html import convert_otsl_to_html
 
@@ -19,6 +20,7 @@ def _process_equation(content: str, debug: bool) -> str:
     content = try_match_equation_left_right(content, debug=debug)
     content = try_fix_equation_double_subscript(content, debug=debug)
     content = try_fix_equation_eqqcolon(content, debug=debug)
+    content = try_fix_equation_big(content, debug=debug)
     return content
 
 
