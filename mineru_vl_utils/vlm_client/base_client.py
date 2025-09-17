@@ -25,8 +25,9 @@ class SamplingParams:
     temperature: float | None
     top_p: float | None
     top_k: int | None
-    repetition_penalty: float | None
     presence_penalty: float | None
+    frequency_penalty: float | None
+    repetition_penalty: float | None
     no_repeat_ngram_size: int | None
     max_new_tokens: int | None
 
@@ -40,8 +41,9 @@ class VlmClient:
         temperature: float | None = None,
         top_p: float | None = None,
         top_k: int | None = None,
-        repetition_penalty: float | None = None,
         presence_penalty: float | None = None,
+        frequency_penalty: float | None = None,
+        repetition_penalty: float | None = None,
         no_repeat_ngram_size: int | None = None,
         max_new_tokens: int | None = None,
         text_before_image: bool = False,
@@ -52,8 +54,9 @@ class VlmClient:
         self.temperature = temperature
         self.top_p = top_p
         self.top_k = top_k
-        self.repetition_penalty = repetition_penalty
         self.presence_penalty = presence_penalty
+        self.frequency_penalty = frequency_penalty
+        self.repetition_penalty = repetition_penalty
         self.no_repeat_ngram_size = no_repeat_ngram_size
         self.max_new_tokens = max_new_tokens
         self.text_before_image = text_before_image
@@ -64,8 +67,9 @@ class VlmClient:
         temperature: Optional[float],
         top_p: Optional[float],
         top_k: Optional[int],
-        repetition_penalty: Optional[float],
         presence_penalty: Optional[float],
+        frequency_penalty: Optional[float],
+        repetition_penalty: Optional[float],
         no_repeat_ngram_size: Optional[int],
         max_new_tokens: Optional[int],
     ) -> SamplingParams:
@@ -75,10 +79,12 @@ class VlmClient:
             top_p = self.top_p
         if top_k is None:
             top_k = self.top_k
-        if repetition_penalty is None:
-            repetition_penalty = self.repetition_penalty
         if presence_penalty is None:
             presence_penalty = self.presence_penalty
+        if frequency_penalty is None:
+            frequency_penalty = self.frequency_penalty
+        if repetition_penalty is None:
+            repetition_penalty = self.repetition_penalty
         if no_repeat_ngram_size is None:
             no_repeat_ngram_size = self.no_repeat_ngram_size
         if max_new_tokens is None:
@@ -88,8 +94,9 @@ class VlmClient:
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
-            repetition_penalty=repetition_penalty,
             presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+            repetition_penalty=repetition_penalty,
             no_repeat_ngram_size=no_repeat_ngram_size,
             max_new_tokens=max_new_tokens,
         )
@@ -101,8 +108,9 @@ class VlmClient:
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         top_k: Optional[int] = None,
-        repetition_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
+        frequency_penalty: Optional[float] = None,
+        repetition_penalty: Optional[float] = None,
         no_repeat_ngram_size: Optional[int] = None,
         max_new_tokens: Optional[int] = None,
     ) -> str:
@@ -115,8 +123,9 @@ class VlmClient:
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         top_k: Optional[int] = None,
-        repetition_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
+        frequency_penalty: Optional[float] = None,
+        repetition_penalty: Optional[float] = None,
         no_repeat_ngram_size: Optional[int] = None,
         max_new_tokens: Optional[int] = None,
     ) -> List[str]:
@@ -129,8 +138,9 @@ class VlmClient:
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         top_k: Optional[int] = None,
-        repetition_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
+        frequency_penalty: Optional[float] = None,
+        repetition_penalty: Optional[float] = None,
         no_repeat_ngram_size: Optional[int] = None,
         max_new_tokens: Optional[int] = None,
     ) -> str:
@@ -143,8 +153,9 @@ class VlmClient:
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         top_k: Optional[int] = None,
-        repetition_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
+        frequency_penalty: Optional[float] = None,
+        repetition_penalty: Optional[float] = None,
         no_repeat_ngram_size: Optional[int] = None,
         max_new_tokens: Optional[int] = None,
         semaphore: asyncio.Semaphore | None = None,
@@ -165,8 +176,9 @@ def new_vlm_client(
     temperature: float | None = None,
     top_p: float | None = None,
     top_k: int | None = None,
-    repetition_penalty: float | None = None,
     presence_penalty: float | None = None,
+    frequency_penalty: float | None = None,
+    repetition_penalty: float | None = None,
     no_repeat_ngram_size: int | None = None,
     max_new_tokens: int | None = None,
     text_before_image: bool = False,
@@ -188,8 +200,9 @@ def new_vlm_client(
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
-            repetition_penalty=repetition_penalty,
             presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+            repetition_penalty=repetition_penalty,
             no_repeat_ngram_size=no_repeat_ngram_size,
             max_new_tokens=max_new_tokens,
             text_before_image=text_before_image,
@@ -210,8 +223,9 @@ def new_vlm_client(
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
-            repetition_penalty=repetition_penalty,
             presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+            repetition_penalty=repetition_penalty,
             no_repeat_ngram_size=no_repeat_ngram_size,
             max_new_tokens=max_new_tokens,
             text_before_image=text_before_image,
@@ -229,8 +243,9 @@ def new_vlm_client(
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
-            repetition_penalty=repetition_penalty,
             presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+            repetition_penalty=repetition_penalty,
             no_repeat_ngram_size=no_repeat_ngram_size,
             max_new_tokens=max_new_tokens,
             text_before_image=text_before_image,
@@ -248,8 +263,9 @@ def new_vlm_client(
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
-            repetition_penalty=repetition_penalty,
             presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+            repetition_penalty=repetition_penalty,
             no_repeat_ngram_size=no_repeat_ngram_size,
             max_new_tokens=max_new_tokens,
             text_before_image=text_before_image,

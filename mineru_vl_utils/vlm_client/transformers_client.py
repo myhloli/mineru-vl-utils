@@ -24,8 +24,9 @@ class TransformersVlmClient(VlmClient):
         temperature: float | None = None,
         top_p: float | None = None,
         top_k: int | None = None,
+        presence_penalty: float | None = None,  # not supported by hf
+        frequency_penalty: float | None = None,  # not supported by hf
         repetition_penalty: float | None = None,
-        presence_penalty: float | None = None,
         no_repeat_ngram_size: int | None = None,
         max_new_tokens: int | None = None,
         text_before_image: bool = False,
@@ -38,8 +39,9 @@ class TransformersVlmClient(VlmClient):
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
-            repetition_penalty=repetition_penalty,
             presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+            repetition_penalty=repetition_penalty,
             no_repeat_ngram_size=no_repeat_ngram_size,
             max_new_tokens=max_new_tokens,
             text_before_image=text_before_image,
@@ -103,8 +105,9 @@ class TransformersVlmClient(VlmClient):
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         top_k: Optional[int] = None,
+        presence_penalty: Optional[float] = None,  # not supported by hf
+        frequency_penalty: Optional[float] = None,  # not supported by hf
         repetition_penalty: Optional[float] = None,
-        presence_penalty: Optional[float] = None,
         no_repeat_ngram_size: Optional[int] = None,
         max_new_tokens: Optional[int] = None,
         **kwargs,
@@ -115,8 +118,9 @@ class TransformersVlmClient(VlmClient):
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
-            repetition_penalty=repetition_penalty,
             presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+            repetition_penalty=repetition_penalty,
             no_repeat_ngram_size=no_repeat_ngram_size,
             max_new_tokens=max_new_tokens,
             **kwargs,
@@ -129,8 +133,9 @@ class TransformersVlmClient(VlmClient):
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         top_k: Optional[int] = None,
-        repetition_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,  # not supported by hf
+        frequency_penalty: Optional[float] = None,  # not supported by hf
+        repetition_penalty: Optional[float] = None,
         no_repeat_ngram_size: Optional[int] = None,
         max_new_tokens: Optional[int] = None,
         **kwargs,
@@ -142,8 +147,9 @@ class TransformersVlmClient(VlmClient):
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
-            repetition_penalty=repetition_penalty,
             presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+            repetition_penalty=repetition_penalty,
             no_repeat_ngram_size=no_repeat_ngram_size,
             max_new_tokens=max_new_tokens,
         )
@@ -252,8 +258,9 @@ class TransformersVlmClient(VlmClient):
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         top_k: Optional[int] = None,
+        presence_penalty: Optional[float] = None,  # not supported by hf
+        frequency_penalty: Optional[float] = None,  # not supported by hf
         repetition_penalty: Optional[float] = None,
-        presence_penalty: Optional[float] = None,
         no_repeat_ngram_size: Optional[int] = None,
         max_new_tokens: Optional[int] = None,
     ) -> str:
@@ -268,8 +275,9 @@ class TransformersVlmClient(VlmClient):
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         top_k: Optional[int] = None,
+        presence_penalty: Optional[float] = None,  # not supported by hf
+        frequency_penalty: Optional[float] = None,  # not supported by hf
         repetition_penalty: Optional[float] = None,
-        presence_penalty: Optional[float] = None,
         no_repeat_ngram_size: Optional[int] = None,
         max_new_tokens: Optional[int] = None,
         semaphore: asyncio.Semaphore | None = None,

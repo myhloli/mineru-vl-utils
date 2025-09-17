@@ -37,8 +37,9 @@ class HttpVlmClient(VlmClient):
         temperature: float | None = None,
         top_p: float | None = None,
         top_k: int | None = None,
-        repetition_penalty: float | None = None,
         presence_penalty: float | None = None,
+        frequency_penalty: float | None = None,
+        repetition_penalty: float | None = None,
         no_repeat_ngram_size: int | None = None,  # not supported
         max_new_tokens: int | None = None,
         text_before_image: bool = False,
@@ -53,8 +54,9 @@ class HttpVlmClient(VlmClient):
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
-            repetition_penalty=repetition_penalty,
             presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+            repetition_penalty=repetition_penalty,
             no_repeat_ngram_size=no_repeat_ngram_size,
             max_new_tokens=max_new_tokens,
             text_before_image=text_before_image,
@@ -174,10 +176,12 @@ class HttpVlmClient(VlmClient):
             sampling_params_dict["top_p"] = sampling_params.top_p
         if sampling_params.top_k is not None:
             sampling_params_dict["top_k"] = sampling_params.top_k
-        if sampling_params.repetition_penalty is not None:
-            sampling_params_dict["repetition_penalty"] = sampling_params.repetition_penalty
         if sampling_params.presence_penalty is not None:
             sampling_params_dict["presence_penalty"] = sampling_params.presence_penalty
+        if sampling_params.frequency_penalty is not None:
+            sampling_params_dict["frequency_penalty"] = sampling_params.frequency_penalty
+        if sampling_params.repetition_penalty is not None:
+            sampling_params_dict["repetition_penalty"] = sampling_params.repetition_penalty
         if sampling_params.max_new_tokens is not None:
             sampling_params_dict["max_completion_tokens"] = sampling_params.max_new_tokens
         sampling_params_dict["skip_special_tokens"] = False
@@ -235,8 +239,9 @@ class HttpVlmClient(VlmClient):
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         top_k: Optional[int] = None,
-        repetition_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
+        frequency_penalty: Optional[float] = None,
+        repetition_penalty: Optional[float] = None,
         no_repeat_ngram_size: Optional[int] = None,
         max_new_tokens: Optional[int] = None,
     ) -> str:
@@ -244,8 +249,9 @@ class HttpVlmClient(VlmClient):
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
-            repetition_penalty=repetition_penalty,
             presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+            repetition_penalty=repetition_penalty,
             no_repeat_ngram_size=no_repeat_ngram_size,
             max_new_tokens=max_new_tokens,
         )
@@ -291,8 +297,9 @@ class HttpVlmClient(VlmClient):
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         top_k: Optional[int] = None,
-        repetition_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
+        frequency_penalty: Optional[float] = None,
+        repetition_penalty: Optional[float] = None,
         no_repeat_ngram_size: Optional[int] = None,
         max_new_tokens: Optional[int] = None,
     ) -> List[str]:
@@ -307,8 +314,9 @@ class HttpVlmClient(VlmClient):
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
-            repetition_penalty=repetition_penalty,
             presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+            repetition_penalty=repetition_penalty,
             no_repeat_ngram_size=no_repeat_ngram_size,
             max_new_tokens=max_new_tokens,
         )
@@ -325,8 +333,9 @@ class HttpVlmClient(VlmClient):
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         top_k: Optional[int] = None,
-        repetition_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
+        frequency_penalty: Optional[float] = None,
+        repetition_penalty: Optional[float] = None,
         no_repeat_ngram_size: Optional[int] = None,
         max_new_tokens: Optional[int] = None,
     ) -> Iterable[str]:
@@ -334,8 +343,9 @@ class HttpVlmClient(VlmClient):
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
-            repetition_penalty=repetition_penalty,
             presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+            repetition_penalty=repetition_penalty,
             no_repeat_ngram_size=no_repeat_ngram_size,
             max_new_tokens=max_new_tokens,
         )
@@ -389,8 +399,9 @@ class HttpVlmClient(VlmClient):
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         top_k: Optional[int] = None,
-        repetition_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
+        frequency_penalty: Optional[float] = None,
+        repetition_penalty: Optional[float] = None,
         no_repeat_ngram_size: Optional[int] = None,
         max_new_tokens: Optional[int] = None,
     ) -> None:
@@ -404,8 +415,9 @@ class HttpVlmClient(VlmClient):
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
-            repetition_penalty=repetition_penalty,
             presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+            repetition_penalty=repetition_penalty,
             no_repeat_ngram_size=no_repeat_ngram_size,
             max_new_tokens=max_new_tokens,
         ):
@@ -419,8 +431,9 @@ class HttpVlmClient(VlmClient):
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         top_k: Optional[int] = None,
-        repetition_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
+        frequency_penalty: Optional[float] = None,
+        repetition_penalty: Optional[float] = None,
         no_repeat_ngram_size: Optional[int] = None,
         max_new_tokens: Optional[int] = None,
         async_client: Optional[httpx.AsyncClient] = None,
@@ -429,8 +442,9 @@ class HttpVlmClient(VlmClient):
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
-            repetition_penalty=repetition_penalty,
             presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+            repetition_penalty=repetition_penalty,
             no_repeat_ngram_size=no_repeat_ngram_size,
             max_new_tokens=max_new_tokens,
         )
@@ -477,8 +491,9 @@ class HttpVlmClient(VlmClient):
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         top_k: Optional[int] = None,
-        repetition_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
+        frequency_penalty: Optional[float] = None,
+        repetition_penalty: Optional[float] = None,
         no_repeat_ngram_size: Optional[int] = None,
         max_new_tokens: Optional[int] = None,
         semaphore: asyncio.Semaphore | None = None,
@@ -503,8 +518,9 @@ class HttpVlmClient(VlmClient):
                     temperature=temperature,
                     top_p=top_p,
                     top_k=top_k,
-                    repetition_penalty=repetition_penalty,
                     presence_penalty=presence_penalty,
+                    frequency_penalty=frequency_penalty,
+                    repetition_penalty=repetition_penalty,
                     no_repeat_ngram_size=no_repeat_ngram_size,
                     max_new_tokens=max_new_tokens,
                     async_client=async_client,
@@ -521,8 +537,9 @@ class HttpVlmClient(VlmClient):
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         top_k: Optional[int] = None,
-        repetition_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
+        frequency_penalty: Optional[float] = None,
+        repetition_penalty: Optional[float] = None,
         no_repeat_ngram_size: Optional[int] = None,
         max_new_tokens: Optional[int] = None,
         semaphore: asyncio.Semaphore | None = None,
@@ -548,8 +565,9 @@ class HttpVlmClient(VlmClient):
                     temperature=temperature,
                     top_p=top_p,
                     top_k=top_k,
-                    repetition_penalty=repetition_penalty,
                     presence_penalty=presence_penalty,
+                    frequency_penalty=frequency_penalty,
+                    repetition_penalty=repetition_penalty,
                     no_repeat_ngram_size=no_repeat_ngram_size,
                     max_new_tokens=max_new_tokens,
                     async_client=async_client,

@@ -22,8 +22,9 @@ DEFAULT_PROMPTS = {
 DEFAULT_TEMPERATURE = 0.0
 DEFAULT_TOP_P = 0.01
 DEFAULT_TOP_K = 1
-DEFAULT_REPETITION_PENALTY = 1.0
 DEFAULT_PRESENCE_PENALTY = 0.0
+DEFAULT_FREQUENCY_PENALTY = 0.0
+DEFAULT_REPETITION_PENALTY = 1.0
 DEFAULT_NO_REPEAT_NGRAM_SIZE = 100
 
 ANGLE_MAPPING = {
@@ -238,8 +239,9 @@ class MinerUClient:
         temperature: float | None = DEFAULT_TEMPERATURE,
         top_p: float | None = DEFAULT_TOP_P,
         top_k: int | None = DEFAULT_TOP_K,
-        repetition_penalty: float | None = DEFAULT_REPETITION_PENALTY,
         presence_penalty: float | None = DEFAULT_PRESENCE_PENALTY,
+        frequency_penalty: float | None = DEFAULT_FREQUENCY_PENALTY,
+        repetition_penalty: float | None = DEFAULT_REPETITION_PENALTY,
         no_repeat_ngram_size: int | None = DEFAULT_NO_REPEAT_NGRAM_SIZE,
         layout_image_size: tuple[int, int] = (1036, 1036),
         min_image_edge: int = 28,
@@ -318,8 +320,9 @@ class MinerUClient:
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
-            repetition_penalty=repetition_penalty,
             presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+            repetition_penalty=repetition_penalty,
             no_repeat_ngram_size=no_repeat_ngram_size,
             max_new_tokens=max_new_tokens,
             allow_truncated_content=True,  # Allow truncated content for MinerU

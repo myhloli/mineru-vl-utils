@@ -28,8 +28,9 @@ class VllmEngineVlmClient(VlmClient):
         temperature: float | None = None,
         top_p: float | None = None,
         top_k: int | None = None,
-        repetition_penalty: float | None = None,
         presence_penalty: float | None = None,
+        frequency_penalty: float | None = None,
+        repetition_penalty: float | None = None,
         no_repeat_ngram_size: int | None = None,  # not supported by vllm
         max_new_tokens: int | None = None,
         text_before_image: bool = False,
@@ -42,8 +43,9 @@ class VllmEngineVlmClient(VlmClient):
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
-            repetition_penalty=repetition_penalty,
             presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+            repetition_penalty=repetition_penalty,
             no_repeat_ngram_size=no_repeat_ngram_size,
             max_new_tokens=max_new_tokens,
             text_before_image=text_before_image,
@@ -117,8 +119,9 @@ class VllmEngineVlmClient(VlmClient):
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         top_k: Optional[int] = None,
-        repetition_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
+        frequency_penalty: Optional[float] = None,
+        repetition_penalty: Optional[float] = None,
         no_repeat_ngram_size: Optional[int] = None,  # not supported by vllm
         max_new_tokens: Optional[int] = None,
     ) -> str:
@@ -128,8 +131,9 @@ class VllmEngineVlmClient(VlmClient):
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
-            repetition_penalty=repetition_penalty,
             presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+            repetition_penalty=repetition_penalty,
             no_repeat_ngram_size=no_repeat_ngram_size,
             max_new_tokens=max_new_tokens,
         )[0]
@@ -141,8 +145,9 @@ class VllmEngineVlmClient(VlmClient):
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         top_k: Optional[int] = None,
-        repetition_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
+        frequency_penalty: Optional[float] = None,
+        repetition_penalty: Optional[float] = None,
         no_repeat_ngram_size: Optional[int] = None,  # not supported by vllm
         max_new_tokens: Optional[int] = None,
     ) -> List[str]:
@@ -153,8 +158,9 @@ class VllmEngineVlmClient(VlmClient):
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
-            repetition_penalty=repetition_penalty,
             presence_penalty=presence_penalty,
+            frequency_penalty=frequency_penalty,
+            repetition_penalty=repetition_penalty,
             no_repeat_ngram_size=no_repeat_ngram_size,
             max_new_tokens=max_new_tokens,
         )
@@ -163,26 +169,12 @@ class VllmEngineVlmClient(VlmClient):
             "temperature": sp.temperature,
             "top_p": sp.top_p,
             "top_k": sp.top_k,
-            "repetition_penalty": sp.repetition_penalty,
             "presence_penalty": sp.presence_penalty,
-            "max_tokens": sp.max_new_tokens,
-        }
-
-        if sp.temperature is not None:
-            vllm_sp_dict["temperature"] = sp.temperature
-        if sp.top_p is not None:
-            vllm_sp_dict["top_p"] = sp.top_p
-        if sp.top_k is not None:
-            vllm_sp_dict["top_k"] = sp.top_k
-        if sp.repetition_penalty is not None:
-            vllm_sp_dict["repetition_penalty"] = sp.repetition_penalty
-        if sp.presence_penalty is not None:
-            vllm_sp_dict["presence_penalty"] = sp.presence_penalty
-        if sp.max_new_tokens is not None:
-            vllm_sp_dict["max_tokens"] = sp.max_new_tokens
-        else:
+            "frequency_penalty": sp.frequency_penalty,
+            "repetition_penalty": sp.repetition_penalty,
             # max_tokens should smaller than model max length
-            vllm_sp_dict["max_tokens"] = self.model_max_length
+            "max_tokens": sp.max_new_tokens if sp.max_new_tokens is not None else self.model_max_length,
+        }
 
         vllm_sampling_params = self.VllmSamplingParams(
             **{k: v for k, v in vllm_sp_dict.items() if v is not None},
@@ -256,9 +248,10 @@ class VllmEngineVlmClient(VlmClient):
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         top_k: Optional[int] = None,
-        repetition_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
-        no_repeat_ngram_size: Optional[int] = None,
+        frequency_penalty: Optional[float] = None,
+        repetition_penalty: Optional[float] = None,
+        no_repeat_ngram_size: Optional[int] = None,  # not supported by vllm
         max_new_tokens: Optional[int] = None,
     ) -> str:
         raise UnsupportedError(
@@ -272,9 +265,10 @@ class VllmEngineVlmClient(VlmClient):
         temperature: Optional[float] = None,
         top_p: Optional[float] = None,
         top_k: Optional[int] = None,
-        repetition_penalty: Optional[float] = None,
         presence_penalty: Optional[float] = None,
-        no_repeat_ngram_size: Optional[int] = None,
+        frequency_penalty: Optional[float] = None,
+        repetition_penalty: Optional[float] = None,
+        no_repeat_ngram_size: Optional[int] = None,  # not supported by vllm
         max_new_tokens: Optional[int] = None,
         semaphore: asyncio.Semaphore | None = None,
     ) -> List[str]:
