@@ -13,57 +13,46 @@ from .vlm_client.utils import get_rgb_image
 
 _layout_re = r"^<\|box_start\|>(\d+)\s+(\d+)\s+(\d+)\s+(\d+)<\|box_end\|><\|ref_start\|>(\w+?)<\|ref_end\|>(.*)$"
 
-DEFAULT_PROMPTS = {
+
+class MinerUSamplingParams(SamplingParams):
+    def __init__(
+        self,
+        temperature=0.0,
+        top_p=0.01,
+        top_k=1,
+        presence_penalty=0.0,
+        frequency_penalty=0.0,
+        repetition_penalty=1.0,
+        no_repeat_ngram_size=100,
+        max_new_tokens=None,
+    ):
+        super().__init__(
+            temperature,
+            top_p,
+            top_k,
+            presence_penalty,
+            frequency_penalty,
+            repetition_penalty,
+            no_repeat_ngram_size,
+            max_new_tokens,
+        )
+
+
+DEFAULT_PROMPTS: dict[str, str] = {
     "table": "\nTable Recognition:",
     "equation": "\nFormula Recognition:",
     "[default]": "\nText Recognition:",
     "[layout]": "\nLayout Detection:",
 }
 
-DEFAULT_SAMPLING_PARAMS = {
-    "table": SamplingParams(
-        temperature=0.0,
-        top_p=0.01,
-        top_k=1,
-        presence_penalty=0.0,
-        frequency_penalty=0.0,
-        repetition_penalty=1.0,
-        no_repeat_ngram_size=100,
-        max_new_tokens=None,
-    ),
-    "equation": SamplingParams(
-        temperature=0.0,
-        top_p=0.01,
-        top_k=1,
-        presence_penalty=0.0,
-        frequency_penalty=0.0,
-        repetition_penalty=1.0,
-        no_repeat_ngram_size=100,
-        max_new_tokens=None,
-    ),
-    "[default]": SamplingParams(
-        temperature=0.0,
-        top_p=0.01,
-        top_k=1,
-        presence_penalty=0.0,
-        frequency_penalty=0.0,
-        repetition_penalty=1.0,
-        no_repeat_ngram_size=100,
-        max_new_tokens=None,
-    ),
-    "[layout]": SamplingParams(
-        temperature=0.0,
-        top_p=0.01,
-        top_k=1,
-        presence_penalty=0.0,
-        frequency_penalty=0.0,
-        repetition_penalty=1.0,
-        no_repeat_ngram_size=100,
-        max_new_tokens=None,
-    ),
+DEFAULT_SAMPLING_PARAMS: dict[str, SamplingParams] = {
+    "table": MinerUSamplingParams(),
+    "equation": MinerUSamplingParams(),
+    "[default]": MinerUSamplingParams(),
+    "[layout]": MinerUSamplingParams(),
 }
 
-ANGLE_MAPPING = {
+ANGLE_MAPPING: dict[str, Literal[0, 90, 180, 270]] = {
     "<|rotate_up|>": 0,
     "<|rotate_right|>": 90,
     "<|rotate_down|>": 180,
@@ -86,7 +75,7 @@ def _convert_bbox(bbox: Sequence[int] | Sequence[str]) -> list[float] | None:
 def _parse_angle(tail: str) -> Literal[None, 0, 90, 180, 270]:
     for token, angle in ANGLE_MAPPING.items():
         if token in tail:
-            return angle  # type: ignore
+            return angle
     return None
 
 
