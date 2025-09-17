@@ -15,6 +15,22 @@ PARATEXT_TYPES = {
 }
 
 
+def _process_equation(content: str, debug: bool) -> str:
+    content = try_match_equation_left_right(content, debug=debug)
+    content = try_fix_equation_double_subscript(content, debug=debug)
+    content = try_fix_equation_eqqcolon(content, debug=debug)
+    return content
+
+
+def _add_equation_brackets(content: str) -> str:
+    content = content.strip()
+    if not content.startswith("\\["):
+        content = f"\\[\n{content}"
+    if not content.endswith("\\]"):
+        content = f"{content}\n\\]"
+    return content
+
+
 def post_process(
     blocks: list[ContentBlock],
     handle_equation_block: bool,
@@ -26,12 +42,14 @@ def post_process(
         if block.type == "table" and block.content:
             block.content = convert_otsl_to_html(block.content)
         if block.type == "equation" and block.content:
-            block.content = try_match_equation_left_right(block.content, debug=debug)
-            block.content = try_fix_equation_double_subscript(block.content, debug=debug)
-            block.content = try_fix_equation_eqqcolon(block.content, debug=debug)
+            block.content = _process_equation(block.content, debug=debug)
 
     if handle_equation_block:
         blocks = do_handle_equation_block(blocks, debug=debug)
+
+    for block in blocks:
+        if block.type == "equation" and block.content:
+            block.content = _add_equation_brackets(block.content)
 
     out_blocks: list[ContentBlock] = []
     for block in blocks:
