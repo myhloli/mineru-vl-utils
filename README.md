@@ -72,7 +72,7 @@ You can use `vllm` or another LLM deployment tool to serve the model.
 Here we only demonstrate how to use `vllm` to serve the model.
 
 ```bash
-vllm serve MODEL_PATH --host 127.0.0.1 --port 8000
+vllm serve opendatalab/MinerU2.5-2509-1.2B --host 127.0.0.1 --port 8000
 ```
 
 ## Using `MinerUClient` by Code
@@ -104,13 +104,13 @@ from PIL import Image
 from mineru_vl_utils import MinerUClient
 
 model = Qwen2VLForConditionalGeneration.from_pretrained(
-    MODEL_PATH,
+    "opendatalab/MinerU2.5-2509-1.2B",
     torch_dtype="auto",
     device_map="auto"
 )
 
 processor = AutoProcessor.from_pretrained(
-    MODEL_PATH,
+    "opendatalab/MinerU2.5-2509-1.2B",
     use_fast=True
 )
 
@@ -132,7 +132,7 @@ from vllm import LLM
 from PIL import Image
 from mineru_vl_utils import MinerUClient
 
-llm = LLM(model=MODEL_PATH)
+llm = LLM(model="opendatalab/MinerU2.5-2509-1.2B")
 
 client = MinerUClient(
     backend="vllm-engine",
@@ -157,7 +157,7 @@ from PIL import Image
 from mineru_vl_utils import MinerUClient
 
 async_llm = AsyncLLM.from_engine_args(
-    AsyncEngineArgs(MODEL_PATH)
+    AsyncEngineArgs("opendatalab/MinerU2.5-2509-1.2B")
 )
 
 client = MinerUClient(
