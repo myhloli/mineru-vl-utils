@@ -28,7 +28,7 @@ class SamplingParams:
     presence_penalty: float | None  # not supported by hf
     frequency_penalty: float | None  # not supported by hf
     repetition_penalty: float | None
-    no_repeat_ngram_size: int | None  # only supported by hf
+    no_repeat_ngram_size: int | None
     max_new_tokens: int | None
 
 
@@ -194,6 +194,7 @@ def new_vlm_client(
             text_before_image=text_before_image,
             allow_truncated_content=allow_truncated_content,
             batch_size=batch_size,
+            debug=debug,
         )
 
     elif backend == "vllm-async-engine":
@@ -207,6 +208,7 @@ def new_vlm_client(
             text_before_image=text_before_image,
             allow_truncated_content=allow_truncated_content,
             max_concurrency=max_concurrency,
+            debug=debug,
         )
 
     else:

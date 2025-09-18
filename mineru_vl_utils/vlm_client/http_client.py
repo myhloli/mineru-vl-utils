@@ -169,6 +169,11 @@ class HttpVlmClient(VlmClient):
             sp_dict["frequency_penalty"] = sp.frequency_penalty
         if sp.repetition_penalty is not None:
             sp_dict["repetition_penalty"] = sp.repetition_penalty
+        if sp.no_repeat_ngram_size is not None:
+            sp_dict["vllm_xargs"] = {
+                "no_repeat_ngram_size": sp.no_repeat_ngram_size,
+                "debug": self.debug,
+            }
         if sp.max_new_tokens is not None:
             sp_dict["max_completion_tokens"] = sp.max_new_tokens
         sp_dict["skip_special_tokens"] = False

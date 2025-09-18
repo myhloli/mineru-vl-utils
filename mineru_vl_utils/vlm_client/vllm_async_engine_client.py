@@ -30,6 +30,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
         text_before_image: bool = False,
         allow_truncated_content: bool = False,
         max_concurrency: int = 1024,
+        debug: bool = False,
     ):
         super().__init__(
             prompt=prompt,
@@ -57,6 +58,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
         self.VllmSamplingParams = SamplingParams
         self.VllmRequestOutputKind = RequestOutputKind
         self.max_concurrency = max_concurrency
+        self.debug = debug
 
     def build_messages(self, prompt: str) -> list[dict]:
         prompt = prompt or self.prompt
@@ -96,6 +98,12 @@ class VllmAsyncEngineVlmClient(VlmClient):
             # max_tokens should smaller than model max length
             "max_tokens": sp.max_new_tokens if sp.max_new_tokens is not None else self.model_max_length,
         }
+
+        if sp.no_repeat_ngram_size is not None:
+            vllm_sp_dict["extra_args"] = {
+                "no_repeat_ngram_size": sp.no_repeat_ngram_size,
+                "debug": self.debug,
+            }
 
         return self.VllmSamplingParams(
             **{k: v for k, v in vllm_sp_dict.items() if v is not None},
