@@ -7,16 +7,13 @@ __version_info__ = (0, 1, 6)
 __lazy_attrs__ = {
     "MinerUClient": (".mineru_client", "MinerUClient"),
     "MinerUSamplingParams": (".mineru_client", "MinerUSamplingParams"),
-    "VllmV0NoRepeatNGramLogitsProcessor": (".logits_processor.vllm_v0_no_repeat_ngram", "VllmV0NoRepeatNGramLogitsProcessor"),
-    "VllmV1NoRepeatNGramLogitsProcessor": (".logits_processor.vllm_v1_no_repeat_ngram", "VllmV1NoRepeatNGramLogitsProcessor"),
+    "MinerULogitsProcessor": (".logits_processor.vllm_v1_no_repeat_ngram", "VllmV1NoRepeatNGramLogitsProcessor"),
 }
 
 if TYPE_CHECKING:
-    from .logits_processor.vllm_v0_no_repeat_ngram import (
-        VllmV0NoRepeatNGramLogitsProcessor,
-    )
+    # Rename for future compatibility
     from .logits_processor.vllm_v1_no_repeat_ngram import (
-        VllmV1NoRepeatNGramLogitsProcessor,
+        VllmV1NoRepeatNGramLogitsProcessor as MinerULogitsProcessor,
     )
     from .mineru_client import MinerUClient, MinerUSamplingParams
 
@@ -32,8 +29,7 @@ def __getattr__(name: str):
 __all__ = [
     "MinerUClient",
     "MinerUSamplingParams",
-    "VllmV0NoRepeatNGramLogitsProcessor",
-    "VllmV1NoRepeatNGramLogitsProcessor",
+    "MinerULogitsProcessor",
     "__version__",
     "__version_info__",
 ]

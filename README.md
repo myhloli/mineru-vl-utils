@@ -71,6 +71,18 @@ Notice:
 You can use `vllm` or another LLM deployment tool to serve the model.
 Here we only demonstrate how to use `vllm` to serve the model.
 
+With vllm>=0.10.1, you can use following command to serve the model.
+The logits processor is used to support `no_repeat_ngram_size` sampling param,
+which can help the model to avoid generating repeated content.
+
+```bash
+vllm serve opendatalab/MinerU2.5-2509-1.2B --host 127.0.0.1 --port 8000 \
+  --logits-processors mineru_vl_utils:MinerULogitsProcessor
+```
+
+If you are using vllm<0.10.1, `no_repeat_ngram_size` sampling param is not supported.
+You still can serve the model without logits processor:
+
 ```bash
 vllm serve opendatalab/MinerU2.5-2509-1.2B --host 127.0.0.1 --port 8000
 ```
@@ -131,8 +143,12 @@ print(extracted_blocks)
 from vllm import LLM
 from PIL import Image
 from mineru_vl_utils import MinerUClient
+from mineru_vl_utils import MinerULogitsProcessor  # if vllm>=0.10.1
 
-llm = LLM(model="opendatalab/MinerU2.5-2509-1.2B")
+llm = LLM(
+    model="opendatalab/MinerU2.5-2509-1.2B",
+    logits_processors=[MinerULogitsProcessor]  # if vllm>=0.10.1
+)
 
 client = MinerUClient(
     backend="vllm-engine",
@@ -155,9 +171,13 @@ from vllm.v1.engine.async_llm import AsyncLLM
 from vllm.engine.arg_utils import AsyncEngineArgs
 from PIL import Image
 from mineru_vl_utils import MinerUClient
+from mineru_vl_utils import MinerULogitsProcessor  # if vllm>=0.10.1
 
 async_llm = AsyncLLM.from_engine_args(
-    AsyncEngineArgs("opendatalab/MinerU2.5-2509-1.2B")
+    AsyncEngineArgs(
+        model="opendatalab/MinerU2.5-2509-1.2B",
+        logits_processors=[MinerULogitsProcessor]  # if vllm>=0.10.1
+    )
 )
 
 client = MinerUClient(
