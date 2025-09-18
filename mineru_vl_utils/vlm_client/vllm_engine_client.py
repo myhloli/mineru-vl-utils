@@ -120,7 +120,7 @@ class VllmEngineVlmClient(VlmClient):
 
     def predict(
         self,
-        image: str | bytes | Image.Image,
+        image: Image.Image | bytes | str,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
     ) -> str:
@@ -132,11 +132,11 @@ class VllmEngineVlmClient(VlmClient):
 
     def batch_predict(
         self,
-        images: list[str] | list[bytes] | list[Image.Image],
-        prompts: list[str] | str = "",
+        images: Sequence[Image.Image | bytes | str],
+        prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
     ) -> list[str]:
-        if isinstance(prompts, list):
+        if not isinstance(prompts, str):
             assert len(prompts) == len(images), "Length of prompts and images must match."
         if isinstance(sampling_params, Sequence):
             assert len(sampling_params) == len(images), "Length of sampling_params and images must match."
@@ -158,7 +158,7 @@ class VllmEngineVlmClient(VlmClient):
                     add_generation_prompt=True,
                 )
             ] * len(images)
-        else:  # isinstance(prompts, list)
+        else:  # isinstance(prompts, Sequence[str])
             chat_prompts: list[str] = [
                 self.tokenizer.apply_chat_template(
                     self.build_messages(prompt),  # type: ignore
@@ -209,21 +209,25 @@ class VllmEngineVlmClient(VlmClient):
 
     async def aio_predict(
         self,
-        image: str | bytes | Image.Image,
+        image: Image.Image | bytes | str,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
     ) -> str:
         raise UnsupportedError(
-            "Asynchronous aio_predict() is not supported in TransformersVlmClient. Please use predict() instead."
+            "Asynchronous aio_predict() is not supported in vllm-engine VlmClient(backend). "
+            "Please use predict() instead. If you intend to use asynchronous client, "
+            "please use vllm-async-engine VlmClient(backend)."
         )
 
     async def aio_batch_predict(
         self,
-        images: list[str] | list[bytes] | list[Image.Image],
-        prompts: list[str] | str = "",
+        images: Sequence[Image.Image | bytes | str],
+        prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         semaphore: asyncio.Semaphore | None = None,
     ) -> list[str]:
         raise UnsupportedError(
-            "Asynchronous aio_batch_predict() is not supported in TransformersVlmClient. Please use batch_predict() instead."
+            "Asynchronous aio_batch_predict() is not supported in vllm-engine VlmClient(backend). "
+            "Please use batch_predict() instead. If you intend to use asynchronous client, "
+            "please use vllm-async-engine VlmClient(backend)."
         )

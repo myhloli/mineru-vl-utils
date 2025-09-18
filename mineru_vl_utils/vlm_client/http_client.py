@@ -221,7 +221,7 @@ class HttpVlmClient(VlmClient):
 
     def predict(
         self,
-        image: str | bytes | Image.Image,
+        image: Image.Image | bytes | str,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
     ) -> str:
@@ -261,8 +261,8 @@ class HttpVlmClient(VlmClient):
 
     def batch_predict(
         self,
-        images: list[str] | list[bytes] | list[Image.Image],
-        prompts: list[str] | str = "",
+        images: Sequence[Image.Image | bytes | str],
+        prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
     ) -> list[str]:
         try:
@@ -283,7 +283,7 @@ class HttpVlmClient(VlmClient):
 
     def stream_predict(
         self,
-        image: str | bytes | Image.Image,
+        image: Image.Image | bytes | str,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
     ) -> Iterable[str]:
@@ -331,7 +331,7 @@ class HttpVlmClient(VlmClient):
 
     def stream_test(
         self,
-        image: str | bytes | Image.Image,
+        image: Image.Image | bytes | str,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
     ) -> None:
@@ -349,7 +349,7 @@ class HttpVlmClient(VlmClient):
 
     async def aio_predict(
         self,
-        image: str | bytes | Image.Image,
+        image: Image.Image | bytes | str,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
         async_client: httpx.AsyncClient | None = None,
@@ -391,12 +391,12 @@ class HttpVlmClient(VlmClient):
 
     async def aio_batch_predict(
         self,
-        images: list[str] | list[bytes] | list[Image.Image],
-        prompts: list[str] | str = "",
+        images: Sequence[Image.Image | bytes | str],
+        prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         semaphore: asyncio.Semaphore | None = None,
     ) -> list[str]:
-        if not isinstance(prompts, list):
+        if isinstance(prompts, str):
             prompts = [prompts] * len(images)
         if not isinstance(sampling_params, Sequence):
             sampling_params = [sampling_params] * len(images)
@@ -408,7 +408,7 @@ class HttpVlmClient(VlmClient):
             semaphore = asyncio.Semaphore(self.max_concurrency)
 
         async def predict_with_semaphore(
-            image: str | bytes | Image.Image,
+            image: Image.Image | bytes | str,
             prompt: str,
             sampling_params: SamplingParams | None,
             async_client: httpx.AsyncClient,
@@ -427,12 +427,12 @@ class HttpVlmClient(VlmClient):
 
     async def aio_batch_predict_as_iter(
         self,
-        images: list[str] | list[bytes] | list[Image.Image],
-        prompts: list[str] | str = "",
+        images: Sequence[Image.Image | bytes | str],
+        prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         semaphore: asyncio.Semaphore | None = None,
     ) -> AsyncIterable[tuple[int, str]]:
-        if not isinstance(prompts, list):
+        if isinstance(prompts, str):
             prompts = [prompts] * len(images)
         if not isinstance(sampling_params, Sequence):
             sampling_params = [sampling_params] * len(images)
@@ -445,7 +445,7 @@ class HttpVlmClient(VlmClient):
 
         async def predict_with_semaphore(
             idx: int,
-            image: str | bytes | Image.Image,
+            image: Image.Image | bytes | str,
             prompt: str,
             sampling_params: SamplingParams | None,
             async_client: httpx.AsyncClient,
@@ -479,7 +479,7 @@ class HttpVlmClient(VlmClient):
 
     # async def aio_stream_predict(
     #     self,
-    #     image: str | bytes | Image.Image,
+    #     image: Image.Image | bytes | str,
     #     prompt: str = "",
     #     temperature: Optional[float] = None,
     #     top_p: Optional[float] = None,

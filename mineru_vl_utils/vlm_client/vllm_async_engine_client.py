@@ -124,28 +124,31 @@ class VllmAsyncEngineVlmClient(VlmClient):
 
     def predict(
         self,
-        image: str | bytes | Image.Image,
+        image: Image.Image | bytes | str,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
     ) -> str:
         raise UnsupportedError(
-            "Synchronous predict() is not supported in VllmAsyncEngineVlmClient. Please use aio_predict() instead."
+            "Synchronous predict() is not supported in vllm-async-engine VlmClient(backend). "
+            "Please use aio_predict() instead. If you intend to use synchronous client, "
+            "please use vllm-engine VlmClient(backend)."
         )
 
     def batch_predict(
         self,
-        images: list[str] | list[bytes] | list[Image.Image],
-        prompts: list[str] | str = "",
+        images: Sequence[Image.Image | bytes | str],
+        prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
     ) -> list[str]:
         raise UnsupportedError(
-            "Synchronous batch_predict() is not supported in VllmAsyncEngineVlmClient. "
-            "Please use aio_batch_predict() instead."
+            "Synchronous batch_predict() is not supported in vllm-async-engine VlmClient(backend). "
+            "Please use aio_batch_predict() instead. If you intend to use synchronous client, "
+            "please use vllm-engine VlmClient(backend)."
         )
 
     async def aio_predict(
         self,
-        image: str | bytes | Image.Image,
+        image: Image.Image | bytes | str,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
     ) -> str:
@@ -178,12 +181,12 @@ class VllmAsyncEngineVlmClient(VlmClient):
 
     async def aio_batch_predict(
         self,
-        images: list[str] | list[bytes] | list[Image.Image],
-        prompts: list[str] | str = "",
+        images: Sequence[Image.Image | bytes | str],
+        prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         semaphore: asyncio.Semaphore | None = None,
     ) -> list[str]:
-        if not isinstance(prompts, list):
+        if isinstance(prompts, str):
             prompts = [prompts] * len(images)
         if not isinstance(sampling_params, Sequence):
             sampling_params = [sampling_params] * len(images)
@@ -194,7 +197,11 @@ class VllmAsyncEngineVlmClient(VlmClient):
         if semaphore is None:
             semaphore = asyncio.Semaphore(self.max_concurrency)
 
-        async def predict_with_semaphore(image: str | bytes | Image.Image, prompt: str, sampling_params: SamplingParams | None):
+        async def predict_with_semaphore(
+            image: Image.Image | bytes | str,
+            prompt: str,
+            sampling_params: SamplingParams | None,
+        ):
             async with semaphore:
                 return await self.aio_predict(
                     image=image,

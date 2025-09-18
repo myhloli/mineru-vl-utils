@@ -1,6 +1,6 @@
 import asyncio
 from dataclasses import dataclass
-from typing import List, Literal, Sequence
+from typing import Literal, Sequence
 
 from PIL import Image
 
@@ -102,7 +102,7 @@ class VlmClient:
 
     def predict(
         self,
-        image: str | bytes | Image.Image,
+        image: Image.Image | bytes | str,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
     ) -> str:
@@ -110,15 +110,15 @@ class VlmClient:
 
     def batch_predict(
         self,
-        images: list[str] | list[bytes] | list[Image.Image],
-        prompts: list[str] | str = "",
+        images: Sequence[Image.Image | bytes | str],
+        prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
-    ) -> List[str]:
+    ) -> list[str]:
         raise NotImplementedError()
 
     async def aio_predict(
         self,
-        image: str | bytes | Image.Image,
+        image: Image.Image | bytes | str,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
     ) -> str:
@@ -126,11 +126,11 @@ class VlmClient:
 
     async def aio_batch_predict(
         self,
-        images: list[str] | list[bytes] | list[Image.Image],
-        prompts: list[str] | str = "",
+        images: Sequence[Image.Image | bytes | str],
+        prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         semaphore: asyncio.Semaphore | None = None,
-    ) -> List[str]:
+    ) -> list[str]:
         raise NotImplementedError()
 
 
