@@ -17,14 +17,14 @@ _layout_re = r"^<\|box_start\|>(\d+)\s+(\d+)\s+(\d+)\s+(\d+)<\|box_end\|><\|ref_
 class MinerUSamplingParams(SamplingParams):
     def __init__(
         self,
-        temperature=0.0,
-        top_p=0.01,
-        top_k=1,
-        presence_penalty=0.0,
-        frequency_penalty=0.0,
-        repetition_penalty=1.0,
-        no_repeat_ngram_size=100,
-        max_new_tokens=None,
+        temperature: float | None = 0.0,
+        top_p: float | None = 0.01,
+        top_k: int | None = 1,
+        presence_penalty: float | None = 0.0,
+        frequency_penalty: float | None = 0.0,
+        repetition_penalty: float | None = 1.0,
+        no_repeat_ngram_size: int | None = 100,
+        max_new_tokens: int | None = None,
     ):
         super().__init__(
             temperature,
