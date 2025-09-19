@@ -4,11 +4,15 @@ from typing import Any
 
 import torch
 from vllm.config import VllmConfig
-from vllm.v1.sample.logits_processor.interface import (
-    BatchUpdate,
-    LogitsProcessor,
-    MoveDirectionality,
-)
+
+try:
+    from vllm.v1.sample.logits_processor.interface import (
+        BatchUpdate,
+        LogitsProcessor,
+        MoveDirectionality,
+    )
+except ImportError as e:
+    raise ImportError("Please install vllm>=0.10.1 to use this feature.") from e
 
 
 def _get_int_value(extra_args: dict[str, Any] | None, key: str) -> int | None:
