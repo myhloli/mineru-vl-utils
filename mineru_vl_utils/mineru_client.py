@@ -280,7 +280,7 @@ class MinerUClient:
         handle_equation_block: bool = True,
         abandon_list: bool = False,
         abandon_paratext: bool = False,
-        max_concurrency: int = 1024,
+        max_concurrency: int = 100,
         executor: Executor | None = None,
         batch_size: int = 0,  # for transformers and vllm-engine
         http_timeout: int = 600,  # for http-client backend only

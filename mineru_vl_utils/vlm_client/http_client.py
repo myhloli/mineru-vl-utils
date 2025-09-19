@@ -37,7 +37,7 @@ class HttpVlmClient(VlmClient):
         sampling_params: SamplingParams | None = None,
         text_before_image: bool = False,
         allow_truncated_content: bool = False,
-        max_concurrency: int = 1024,
+        max_concurrency: int = 100,
         http_timeout: int = 600,
         debug: bool = False,
     ) -> None:
