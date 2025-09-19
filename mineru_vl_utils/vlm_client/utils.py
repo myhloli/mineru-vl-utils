@@ -46,9 +46,9 @@ async def aio_load_resource(uri: str) -> bytes:
 
 
 def get_png_bytes(image: Image.Image) -> bytes:
-    buffer = BytesIO()
-    image.save(buffer, format="PNG")
-    return buffer.getvalue()
+    with BytesIO() as buffer:
+        image.save(buffer, format="PNG")
+        return buffer.getvalue()
 
 
 def get_image_format(image_bytes: bytes) -> str:

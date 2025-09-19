@@ -9,7 +9,7 @@ from PIL import Image
 from .post_process import post_process
 from .structs import BLOCK_TYPES, ContentBlock
 from .vlm_client import DEFAULT_SYSTEM_PROMPT, SamplingParams, new_vlm_client
-from .vlm_client.utils import get_rgb_image
+from .vlm_client.utils import get_png_bytes, get_rgb_image
 
 _layout_re = r"^<\|box_start\|>(\d+)\s+(\d+)\s+(\d+)\s+(\d+)<\|box_end\|><\|ref_start\|>(\w+?)<\|ref_end\|>(.*)$"
 
@@ -82,6 +82,7 @@ def _parse_angle(tail: str) -> Literal[None, 0, 90, 180, 270]:
 class MinerUClientHelper:
     def __init__(
         self,
+        backend: str,
         prompts: dict[str, str],
         sampling_params: dict[str, SamplingParams],
         layout_image_size: tuple[int, int],
@@ -92,6 +93,7 @@ class MinerUClientHelper:
         abandon_paratext: bool,
         debug: bool,
     ) -> None:
+        self.backend = backend
         self.prompts = prompts
         self.sampling_params = sampling_params
         self.layout_image_size = layout_image_size
@@ -119,9 +121,11 @@ class MinerUClientHelper:
             image = image.resize((new_w, new_h), Image.Resampling.BICUBIC)
         return image
 
-    def prepare_for_layout(self, image: Image.Image) -> Image.Image:
+    def prepare_for_layout(self, image: Image.Image) -> Image.Image | bytes:
         image = get_rgb_image(image)
         image = image.resize(self.layout_image_size, Image.Resampling.BICUBIC)
+        if self.backend == "http-client":
+            return get_png_bytes(image)
         return image
 
     def parse_layout_output(self, output: str) -> list[ContentBlock]:
@@ -150,10 +154,10 @@ class MinerUClientHelper:
         self,
         image: Image.Image,
         blocks: list[ContentBlock],
-    ) -> tuple[list[Image.Image], list[str], list[SamplingParams | None], list[int]]:
+    ) -> tuple[list[Image.Image | bytes], list[str], list[SamplingParams | None], list[int]]:
         image = get_rgb_image(image)
         width, height = image.size
-        block_images: list[Image.Image] = []
+        block_images: list[Image.Image | bytes] = []
         prompts: list[str] = []
         sampling_params: list[SamplingParams | None] = []
         indices: list[int] = []
@@ -165,7 +169,10 @@ class MinerUClientHelper:
             block_image = image.crop(scaled_bbox)
             if block.angle in [90, 180, 270]:
                 block_image = block_image.rotate(block.angle, expand=True)
-            block_images.append(self.resize_by_need(block_image))
+            block_image = self.resize_by_need(block_image)
+            if self.backend == "http-client":
+                block_image = get_png_bytes(block_image)
+            block_images.append(block_image)
             prompt = self.prompts.get(block.type) or self.prompts["[default]"]
             prompts.append(prompt)
             params = self.sampling_params.get(block.type) or self.sampling_params.get("[default]")
@@ -186,7 +193,7 @@ class MinerUClientHelper:
         self,
         executor: Executor | None,
         images: list[Image.Image],
-    ) -> list[Image.Image]:
+    ) -> list[Image.Image | bytes]:
         if executor is None:
             return [self.prepare_for_layout(im) for im in images]
         return list(executor.map(self.prepare_for_layout, images))
@@ -205,7 +212,7 @@ class MinerUClientHelper:
         executor: Executor | None,
         images: list[Image.Image],
         blocks_list: list[list[ContentBlock]],
-    ) -> list[tuple[list[Image.Image], list[str], list[SamplingParams | None], list[int]]]:
+    ) -> list[tuple[list[Image.Image | bytes], list[str], list[SamplingParams | None], list[int]]]:
         if executor is None:
             return [self.prepare_for_extract(im, bls) for im, bls in zip(images, blocks_list)]
         return list(executor.map(self.prepare_for_extract, images, blocks_list))
@@ -223,7 +230,7 @@ class MinerUClientHelper:
         self,
         executor: Executor | None,
         image: Image.Image,
-    ) -> Image.Image:
+    ) -> Image.Image | bytes:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(executor, self.prepare_for_layout, image)
 
@@ -240,7 +247,7 @@ class MinerUClientHelper:
         executor: Executor | None,
         image: Image.Image,
         blocks: list[ContentBlock],
-    ) -> tuple[list[Image.Image], list[str], list[SamplingParams | None], list[int]]:
+    ) -> tuple[list[Image.Image | bytes], list[str], list[SamplingParams | None], list[int]]:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(executor, self.prepare_for_extract, image, blocks)
 
@@ -347,6 +354,7 @@ class MinerUClient:
             debug=debug,
         )
         self.helper = MinerUClientHelper(
+            backend=backend,
             prompts=prompts,
             sampling_params=sampling_params,
             layout_image_size=layout_image_size,
@@ -369,17 +377,17 @@ class MinerUClient:
             self.batching_mode = "stepping"
 
     def layout_detect(self, image: Image.Image) -> list[ContentBlock]:
-        image = self.helper.prepare_for_layout(image)
+        layout_image = self.helper.prepare_for_layout(image)
         prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
         params = self.sampling_params.get("[layout]") or self.sampling_params.get("[default]")
-        output = self.client.predict(image, prompt, params)
+        output = self.client.predict(layout_image, prompt, params)
         return self.helper.parse_layout_output(output)
 
     def batch_layout_detect(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
-        images = self.helper.batch_prepare_for_layout(self.executor, images)
+        layout_images = self.helper.batch_prepare_for_layout(self.executor, images)
         prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
         params = self.sampling_params.get("[layout]") or self.sampling_params.get("[default]")
-        outputs = self.client.batch_predict(images, prompt, params)
+        outputs = self.client.batch_predict(layout_images, prompt, params)
         return self.helper.batch_parse_layout_output(self.executor, outputs)
 
     async def aio_layout_detect(
@@ -387,14 +395,14 @@ class MinerUClient:
         image: Image.Image,
         semaphore: asyncio.Semaphore | None = None,
     ) -> list[ContentBlock]:
-        image = await self.helper.aio_prepare_for_layout(self.executor, image)
+        layout_image = await self.helper.aio_prepare_for_layout(self.executor, image)
         prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
         params = self.sampling_params.get("[layout]") or self.sampling_params.get("[default]")
         if semaphore is None:
-            output = await self.client.aio_predict(image, prompt, params)
+            output = await self.client.aio_predict(layout_image, prompt, params)
         else:
             async with semaphore:
-                output = await self.client.aio_predict(image, prompt, params)
+                output = await self.client.aio_predict(layout_image, prompt, params)
         return await self.helper.aio_parse_layout_output(self.executor, output)
 
     async def aio_batch_layout_detect(
@@ -403,10 +411,10 @@ class MinerUClient:
         semaphore: asyncio.Semaphore | None = None,
     ) -> list[list[ContentBlock]]:
         semaphore = semaphore or asyncio.Semaphore(self.max_concurrency)
-        images = await asyncio.gather(*[self.helper.aio_prepare_for_layout(self.executor, im) for im in images])
+        layout_images = await asyncio.gather(*[self.helper.aio_prepare_for_layout(self.executor, im) for im in images])
         prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
         params = self.sampling_params.get("[layout]") or self.sampling_params.get("[default]")
-        outputs = await self.client.aio_batch_predict(images, prompt, params, semaphore=semaphore)
+        outputs = await self.client.aio_batch_predict(layout_images, prompt, params, semaphore=semaphore)
         return await asyncio.gather(*[self.helper.aio_parse_layout_output(self.executor, out) for out in outputs])
 
     def two_step_extract(self, image: Image.Image) -> list[ContentBlock]:
@@ -453,7 +461,7 @@ class MinerUClient:
 
     def stepping_two_step_extract(self, images: list[Image.Image]) -> list[list[ContentBlock]]:
         blocks_list = self.batch_layout_detect(images)
-        all_images: list[Image.Image] = []
+        all_images: list[Image.Image | bytes] = []
         all_prompts: list[str] = []
         all_params: list[SamplingParams | None] = []
         all_indices: list[tuple[int, int]] = []
@@ -475,7 +483,7 @@ class MinerUClient:
     ) -> list[list[ContentBlock]]:
         semaphore = semaphore or asyncio.Semaphore(self.max_concurrency)
         blocks_list = await self.aio_batch_layout_detect(images, semaphore)
-        all_images: list[Image.Image] = []
+        all_images: list[Image.Image | bytes] = []
         all_prompts: list[str] = []
         all_params: list[SamplingParams | None] = []
         all_indices: list[tuple[int, int]] = []
