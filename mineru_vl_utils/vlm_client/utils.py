@@ -1,13 +1,19 @@
+import asyncio
 import os
 import re
 from base64 import b64decode, b64encode
+from collections.abc import Coroutine
 from io import BytesIO
+from typing import Any, TypeVar
 
 import aiofiles
 import httpx
 from PIL import Image
+from tqdm import tqdm
 
 from .base_client import RequestError
+
+T = TypeVar("T")
 
 _timeout = int(os.getenv("REQUEST_TIMEOUT", "3"))
 _file_exts = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf")
@@ -80,3 +86,26 @@ def get_rgb_image(image: Image.Image) -> Image.Image:
     if image.mode != "RGB":
         image = image.convert("RGB")
     return image
+
+
+async def gather_tasks(
+    tasks: list[Coroutine[Any, Any, T]],
+    use_tqdm=False,
+    tqdm_desc: str | None = None,
+) -> list[T]:
+    outputs: list[T | None] = [None] * len(tasks)
+
+    async def gather_output(idx: int, task: Coroutine[Any, Any, T]):
+        outputs[idx] = await task
+
+    pending: set[asyncio.Task[None]] = set()
+    for idx, task in enumerate(tasks):
+        pending.add(asyncio.create_task(gather_output(idx, task)))
+
+    with tqdm(total=len(tasks), desc=tqdm_desc, disable=not use_tqdm) as pbar:
+        while len(pending) > 0:
+            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            pbar.update(len(done))
+
+    assert all(output is not None for output in outputs)
+    return outputs  # type: ignore

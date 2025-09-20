@@ -30,6 +30,7 @@ class VllmEngineVlmClient(VlmClient):
         text_before_image: bool = False,
         allow_truncated_content: bool = False,
         batch_size: int = 0,
+        use_tqdm: bool = True,
         debug: bool = False,
     ):
         super().__init__(
@@ -55,6 +56,7 @@ class VllmEngineVlmClient(VlmClient):
         self.model_max_length = vllm_llm.llm_engine.model_config.max_model_len
         self.VllmSamplingParams = SamplingParams
         self.batch_size = batch_size
+        self.use_tqdm = use_tqdm
         self.debug = debug
 
     def build_messages(self, prompt: str) -> list[dict]:
@@ -211,6 +213,7 @@ class VllmEngineVlmClient(VlmClient):
         outputs = self.vllm_llm.generate(
             prompts=vllm_prompts,  # type: ignore
             sampling_params=vllm_sampling_params,
+            use_tqdm=self.use_tqdm,
         )
 
         return [self.get_output_content(output) for output in outputs]
@@ -233,6 +236,8 @@ class VllmEngineVlmClient(VlmClient):
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         semaphore: asyncio.Semaphore | None = None,
+        use_tqdm=False,
+        tqdm_desc: str | None = None,
     ) -> list[str]:
         raise UnsupportedError(
             "Asynchronous aio_batch_predict() is not supported in vllm-engine VlmClient(backend). "

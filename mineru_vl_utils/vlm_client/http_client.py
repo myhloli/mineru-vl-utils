@@ -15,7 +15,13 @@ from .base_client import (
     ServerError,
     VlmClient,
 )
-from .utils import aio_load_resource, get_image_data_url, get_png_bytes, load_resource
+from .utils import (
+    aio_load_resource,
+    gather_tasks,
+    get_image_data_url,
+    get_png_bytes,
+    load_resource,
+)
 
 
 def _get_env(key: str, default: str | None = None) -> str:
@@ -56,7 +62,6 @@ class HttpVlmClient(VlmClient):
             server_url = _get_env("MINERU_VL_SERVER")
 
         self.server_url = self._get_base_url(server_url)
-        self._check_server_health(self.server_url)
 
         if model_name:
             self._check_model_name(self.server_url, model_name)
@@ -73,16 +78,6 @@ class HttpVlmClient(VlmClient):
         if not matched:
             raise RequestError(f"Invalid server URL: {server_url}")
         return matched.group(1)
-
-    def _check_server_health(self, base_url: str):
-        try:
-            response = httpx.get(f"{base_url}/health", timeout=self.http_timeout)
-        except httpx.ConnectError:
-            raise ServerError(f"Failed to connect to server {base_url}. Please check if the server is running.")
-        if response.status_code != 200:
-            raise ServerError(
-                f"Server {base_url} is not healthy. Status code: {response.status_code}, response body: {response.text}"
-            )
 
     def _check_model_name(self, base_url: str, model_name: str):
         try:
@@ -400,6 +395,8 @@ class HttpVlmClient(VlmClient):
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         semaphore: asyncio.Semaphore | None = None,
+        use_tqdm=False,
+        tqdm_desc: str | None = None,
     ) -> list[str]:
         if isinstance(prompts, str):
             prompts = [prompts] * len(images)
@@ -427,8 +424,11 @@ class HttpVlmClient(VlmClient):
                 )
 
         async with httpx.AsyncClient(timeout=self.http_timeout) as client:
-            tasks = [predict_with_semaphore(*args, client) for args in zip(images, prompts, sampling_params)]
-            return await asyncio.gather(*tasks)
+            return await gather_tasks(
+                tasks=[predict_with_semaphore(*args, client) for args in zip(images, prompts, sampling_params)],
+                use_tqdm=use_tqdm,
+                tqdm_desc=tqdm_desc,
+            )
 
     async def aio_batch_predict_as_iter(
         self,

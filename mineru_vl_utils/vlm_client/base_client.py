@@ -130,6 +130,8 @@ class VlmClient:
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         semaphore: asyncio.Semaphore | None = None,
+        use_tqdm=False,
+        tqdm_desc: str | None = None,
     ) -> list[str]:
         raise NotImplementedError()
 
@@ -150,6 +152,7 @@ def new_vlm_client(
     max_concurrency: int = 100,
     batch_size: int = 0,
     http_timeout: int = 600,
+    use_tqdm: bool = True,
     debug: bool = False,
 ) -> VlmClient:
 
@@ -181,6 +184,7 @@ def new_vlm_client(
             text_before_image=text_before_image,
             allow_truncated_content=allow_truncated_content,
             batch_size=batch_size,
+            use_tqdm=use_tqdm,
         )
 
     elif backend == "vllm-engine":
@@ -194,6 +198,7 @@ def new_vlm_client(
             text_before_image=text_before_image,
             allow_truncated_content=allow_truncated_content,
             batch_size=batch_size,
+            use_tqdm=use_tqdm,
             debug=debug,
         )
 

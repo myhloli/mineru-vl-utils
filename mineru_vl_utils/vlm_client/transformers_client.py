@@ -26,6 +26,7 @@ class TransformersVlmClient(VlmClient):
         text_before_image: bool = False,
         allow_truncated_content: bool = False,
         batch_size: int = 0,
+        use_tqdm: bool = True,
     ):
         super().__init__(
             prompt=prompt,
@@ -59,6 +60,7 @@ class TransformersVlmClient(VlmClient):
 
         self.skip_token_ids = skip_token_ids
         self.batch_size = batch_size
+        self.use_tqdm = use_tqdm
 
     def build_messages(self, prompt: str) -> list[dict]:
         prompt = prompt or self.prompt
@@ -171,7 +173,7 @@ class TransformersVlmClient(VlmClient):
         outputs: list[str | None] = [None] * len(inputs)
         batch_size = max(1, self.batch_size)
 
-        with tqdm(total=len(inputs), desc="Predict") as progress_bar:
+        with tqdm(total=len(inputs), desc="Predict", disable=not self.use_tqdm) as pbar:
 
             # group inputs by sampling_params, because transformers
             # don't support different params in one batch.
@@ -192,7 +194,7 @@ class TransformersVlmClient(VlmClient):
                     for input, output in zip(batch_inputs, batch_outputs):
                         idx = input[1]
                         outputs[idx] = output
-                    progress_bar.update(len(batch_outputs))
+                    pbar.update(len(batch_outputs))
 
         assert all(output is not None for output in outputs)
         return outputs  # type: ignore
@@ -252,6 +254,8 @@ class TransformersVlmClient(VlmClient):
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         semaphore: asyncio.Semaphore | None = None,
+        use_tqdm=False,
+        tqdm_desc: str | None = None,
     ) -> list[str]:
         return await asyncio.to_thread(
             self.batch_predict,

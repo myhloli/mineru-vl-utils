@@ -17,7 +17,7 @@ from .base_client import (
     UnsupportedError,
     VlmClient,
 )
-from .utils import aio_load_resource, get_rgb_image
+from .utils import aio_load_resource, gather_tasks, get_rgb_image
 
 
 class VllmAsyncEngineVlmClient(VlmClient):
@@ -195,6 +195,8 @@ class VllmAsyncEngineVlmClient(VlmClient):
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         semaphore: asyncio.Semaphore | None = None,
+        use_tqdm=False,
+        tqdm_desc: str | None = None,
     ) -> list[str]:
         if isinstance(prompts, str):
             prompts = [prompts] * len(images)
@@ -219,5 +221,8 @@ class VllmAsyncEngineVlmClient(VlmClient):
                     sampling_params=sampling_params,
                 )
 
-        tasks = [predict_with_semaphore(*args) for args in zip(images, prompts, sampling_params)]
-        return await asyncio.gather(*tasks)
+        return await gather_tasks(
+            tasks=[predict_with_semaphore(*args) for args in zip(images, prompts, sampling_params)],
+            use_tqdm=use_tqdm,
+            tqdm_desc=tqdm_desc,
+        )
