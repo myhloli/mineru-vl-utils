@@ -1,8 +1,8 @@
 import importlib
 from typing import TYPE_CHECKING
 
-__version__ = "0.1.9"
-__version_info__ = (0, 1, 9)
+__version__ = "0.1.10"
+__version_info__ = (0, 1, 10)
 
 __lazy_attrs__ = {
     "MinerUClient": (".mineru_client", "MinerUClient"),

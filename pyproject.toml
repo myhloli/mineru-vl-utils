@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mineru_vl_utils"
-version = "0.1.9"
+version = "0.1.10"
 authors = [
   { name="Jin Zhen Jiang", email="jinzhenjiang@pjlab.org.cn" },
 ]
