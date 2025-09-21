@@ -185,6 +185,7 @@ class VllmEngineVlmClient(VlmClient):
 
         outputs = []
         batch_size = self.batch_size if self.batch_size > 0 else len(images)
+        batch_size = max(1, batch_size)
 
         for i in range(0, len(images), batch_size):
             batch_image_objs = image_objs[i : i + batch_size]
