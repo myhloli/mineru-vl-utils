@@ -22,14 +22,14 @@ class ServerError(RuntimeError):
 
 @dataclass
 class SamplingParams:
-    temperature: float | None
-    top_p: float | None
-    top_k: int | None
-    presence_penalty: float | None  # not supported by hf
-    frequency_penalty: float | None  # not supported by hf
-    repetition_penalty: float | None
-    no_repeat_ngram_size: int | None
-    max_new_tokens: int | None
+    temperature: float | None = None
+    top_p: float | None = None
+    top_k: int | None = None
+    presence_penalty: float | None = None  # not supported by hf
+    frequency_penalty: float | None = None  # not supported by hf
+    repetition_penalty: float | None = None
+    no_repeat_ngram_size: int | None = None
+    max_new_tokens: int | None = None
 
 
 class VlmClient:
