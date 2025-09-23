@@ -122,6 +122,8 @@ class VllmAsyncEngineVlmClient(VlmClient):
             raise ServerError("No choices found in the output.")
 
         finish_reason = choices[0].finish_reason
+        if finish_reason is None:
+            raise ServerError("Finish reason is None in the output.")
         if finish_reason == "length":
             if not self.allow_truncated_content:
                 raise RequestError("The output was truncated due to length limit.")

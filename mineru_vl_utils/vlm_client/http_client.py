@@ -202,6 +202,8 @@ class HttpVlmClient(VlmClient):
         if not (isinstance(choices, list) and choices):
             raise ServerError("No choices found in the response.")
         finish_reason = choices[0].get("finish_reason")
+        if finish_reason is None:
+            raise ServerError("Finish reason is None in the response.")
         if finish_reason == "length":
             if not self.allow_truncated_content:
                 raise RequestError("The response was truncated due to length limit.")
