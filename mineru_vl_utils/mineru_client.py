@@ -47,7 +47,7 @@ DEFAULT_PROMPTS: dict[str, str] = {
 
 DEFAULT_SAMPLING_PARAMS: dict[str, SamplingParams] = {
     "table": MinerUSamplingParams(presence_penalty=1.0, frequency_penalty=0.005),
-    "equation": MinerUSamplingParams(),
+    "equation": MinerUSamplingParams(presence_penalty=1.0, frequency_penalty=0.05),
     "[default]": MinerUSamplingParams(presence_penalty=1.0, frequency_penalty=0.05),
     "[layout]": MinerUSamplingParams(),
 }
