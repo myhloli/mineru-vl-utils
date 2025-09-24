@@ -425,7 +425,10 @@ class HttpVlmClient(VlmClient):
                     async_client=async_client,
                 )
 
-        async with httpx.AsyncClient(timeout=self.http_timeout) as client:
+        async with httpx.AsyncClient(
+            timeout=self.http_timeout,
+            limits=httpx.Limits(max_connections=None, max_keepalive_connections=20),
+        ) as client:
             return await gather_tasks(
                 tasks=[predict_with_semaphore(*args, client) for args in zip(images, prompts, sampling_params)],
                 use_tqdm=use_tqdm,
@@ -466,7 +469,10 @@ class HttpVlmClient(VlmClient):
                 )
                 return (idx, output)
 
-        async with httpx.AsyncClient(timeout=self.http_timeout) as client:
+        async with httpx.AsyncClient(
+            timeout=self.http_timeout,
+            limits=httpx.Limits(max_connections=None, max_keepalive_connections=20),
+        ) as client:
             pending: set[asyncio.Task[tuple[int, str]]] = set()
 
             for idx, (prompt, image, params) in enumerate(zip(prompts, images, sampling_params)):
