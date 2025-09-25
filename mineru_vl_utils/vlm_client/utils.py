@@ -93,19 +93,20 @@ async def gather_tasks(
     use_tqdm=False,
     tqdm_desc: str | None = None,
 ) -> list[T]:
-    outputs: list[T | None] = [None] * len(tasks)
+    async def indexed(idx: int, task: Coroutine[Any, Any, T]):
+        output = await task
+        return (idx, output)
 
-    async def gather_output(idx: int, task: Coroutine[Any, Any, T]):
-        outputs[idx] = await task
-
-    pending: set[asyncio.Task[None]] = set()
+    pending: set[asyncio.Task[tuple[int, T]]] = set()
     for idx, task in enumerate(tasks):
-        pending.add(asyncio.create_task(gather_output(idx, task)))
+        pending.add(asyncio.create_task(indexed(idx, task)))
 
+    outputs: list[tuple[int, T]] = []
     with tqdm(total=len(tasks), desc=tqdm_desc, disable=not use_tqdm) as pbar:
         while len(pending) > 0:
             done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            outputs.extend(done_task.result() for done_task in done)
             pbar.update(len(done))
 
-    assert all(output is not None for output in outputs)
-    return outputs  # type: ignore
+    outputs.sort(key=lambda x: x[0])
+    return [output for _, output in outputs]
