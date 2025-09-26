@@ -105,6 +105,7 @@ class VlmClient:
         image: Image.Image | bytes | str,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
+        priority: int | None = None,
     ) -> str:
         raise NotImplementedError()
 
@@ -113,6 +114,7 @@ class VlmClient:
         images: Sequence[Image.Image | bytes | str],
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
+        priority: Sequence[int | None] | int | None = None,
     ) -> list[str]:
         raise NotImplementedError()
 
@@ -121,6 +123,7 @@ class VlmClient:
         image: Image.Image | bytes | str,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
+        priority: int | None = None,
     ) -> str:
         raise NotImplementedError()
 
@@ -129,6 +132,7 @@ class VlmClient:
         images: Sequence[Image.Image | bytes | str],
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
+        priority: Sequence[int | None] | int | None = None,
         semaphore: asyncio.Semaphore | None = None,
         use_tqdm=False,
         tqdm_desc: str | None = None,

@@ -139,6 +139,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
         image: Image.Image | bytes | str,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
+        priority: int | None = None,
     ) -> str:
         raise UnsupportedError(
             "Synchronous predict() is not supported in vllm-async-engine VlmClient(backend). "
@@ -151,6 +152,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
         images: Sequence[Image.Image | bytes | str],
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
+        priority: Sequence[int | None] | int | None = None,
     ) -> list[str]:
         raise UnsupportedError(
             "Synchronous batch_predict() is not supported in vllm-async-engine VlmClient(backend). "
@@ -163,6 +165,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
         image: Image.Image | bytes | str,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
+        priority: int | None = None,
     ) -> str:
         if isinstance(image, str):
             image = await aio_load_resource(image)
@@ -178,11 +181,16 @@ class VllmAsyncEngineVlmClient(VlmClient):
 
         vllm_sp = self.build_vllm_sampling_params(sampling_params)
 
+        generate_kwargs = {}
+        if priority is not None:
+            generate_kwargs["priority"] = priority
+
         last_output = None
         async for output in self.vllm_async_llm.generate(
             prompt={"prompt": chat_prompt, "multi_modal_data": {"image": image}},
             sampling_params=vllm_sp,
             request_id=str(uuid.uuid4()),
+            **generate_kwargs,
         ):
             last_output = output
 
@@ -196,6 +204,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
         images: Sequence[Image.Image | bytes | str],
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
+        priority: Sequence[int | None] | int | None = None,
         semaphore: asyncio.Semaphore | None = None,
         use_tqdm=False,
         tqdm_desc: str | None = None,
@@ -204,9 +213,12 @@ class VllmAsyncEngineVlmClient(VlmClient):
             prompts = [prompts] * len(images)
         if not isinstance(sampling_params, Sequence):
             sampling_params = [sampling_params] * len(images)
+        if not isinstance(priority, Sequence):
+            priority = [priority] * len(images)
 
         assert len(prompts) == len(images), "Length of prompts and images must match."
         assert len(sampling_params) == len(images), "Length of sampling_params and images must match."
+        assert len(priority) == len(images), "Length of priority and images must match."
 
         if semaphore is None:
             semaphore = asyncio.Semaphore(self.max_concurrency)
@@ -215,16 +227,26 @@ class VllmAsyncEngineVlmClient(VlmClient):
             image: Image.Image | bytes | str,
             prompt: str,
             sampling_params: SamplingParams | None,
+            priority: int | None,
         ):
             async with semaphore:
                 return await self.aio_predict(
                     image=image,
                     prompt=prompt,
                     sampling_params=sampling_params,
+                    priority=priority,
                 )
 
         return await gather_tasks(
-            tasks=[predict_with_semaphore(*args) for args in zip(images, prompts, sampling_params)],
+            tasks=[
+                predict_with_semaphore(*args)
+                for args in zip(
+                    images,
+                    prompts,
+                    sampling_params,
+                    priority,
+                )
+            ],
             use_tqdm=use_tqdm,
             tqdm_desc=tqdm_desc,
         )

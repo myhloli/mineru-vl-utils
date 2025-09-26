@@ -135,6 +135,7 @@ class VllmEngineVlmClient(VlmClient):
         image: Image.Image | bytes | str,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
+        priority: int | None = None,
     ) -> str:
         return self.batch_predict(
             [image],  # type: ignore
@@ -147,11 +148,14 @@ class VllmEngineVlmClient(VlmClient):
         images: Sequence[Image.Image | bytes | str],
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
+        priority: Sequence[int | None] | int | None = None,
     ) -> list[str]:
         if not isinstance(prompts, str):
             assert len(prompts) == len(images), "Length of prompts and images must match."
         if isinstance(sampling_params, Sequence):
             assert len(sampling_params) == len(images), "Length of sampling_params and images must match."
+        if isinstance(priority, Sequence):
+            assert len(priority) == len(images), "Length of priority and images must match."
 
         image_objs: list[Image.Image] = []
         for image in images:
@@ -226,6 +230,7 @@ class VllmEngineVlmClient(VlmClient):
         image: Image.Image | bytes | str,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
+        priority: int | None = None,
     ) -> str:
         raise UnsupportedError(
             "Asynchronous aio_predict() is not supported in vllm-engine VlmClient(backend). "
@@ -238,6 +243,7 @@ class VllmEngineVlmClient(VlmClient):
         images: Sequence[Image.Image | bytes | str],
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
+        priority: Sequence[int | None] | int | None = None,
         semaphore: asyncio.Semaphore | None = None,
         use_tqdm=False,
         tqdm_desc: str | None = None,

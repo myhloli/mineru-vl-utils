@@ -114,6 +114,7 @@ class TransformersVlmClient(VlmClient):
         image: Image.Image | bytes | str,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
+        priority: int | None = None,
         **kwargs,
     ) -> str:
         return self.batch_predict(
@@ -128,12 +129,15 @@ class TransformersVlmClient(VlmClient):
         images: Sequence[Image.Image | bytes | str],
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
+        priority: Sequence[int | None] | int | None = None,
         **kwargs,
     ) -> list[str]:
         if not isinstance(prompts, str):
             assert len(prompts) == len(images), "Length of prompts and images must match."
         if isinstance(sampling_params, Sequence):
             assert len(sampling_params) == len(images), "Length of sampling_params and images must match."
+        if isinstance(priority, Sequence):
+            assert len(priority) == len(images), "Length of priority and images must match."
 
         image_objs: list[Image.Image] = []
         for image in images:
@@ -240,6 +244,7 @@ class TransformersVlmClient(VlmClient):
         image: Image.Image | bytes | str,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
+        priority: int | None = None,
     ) -> str:
         return await asyncio.to_thread(
             self.predict,
@@ -253,6 +258,7 @@ class TransformersVlmClient(VlmClient):
         images: Sequence[Image.Image | bytes | str],
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
+        priority: Sequence[int | None] | int | None = None,
         semaphore: asyncio.Semaphore | None = None,
         use_tqdm=False,
         tqdm_desc: str | None = None,
