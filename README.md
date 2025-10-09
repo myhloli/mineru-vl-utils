@@ -45,19 +45,19 @@ Each `ContentBlock` contains the following attributes:
 For `http-client` backend, just install the package via pip:
 
 ```bash
-pip install mineru-vl-utils==0.1.12
+pip install mineru-vl-utils==0.1.13
 ```
 
 For `transformers` backend, install the package with the `transformers` extra:
 
 ```bash
-pip install "mineru-vl-utils[transformers]==0.1.12"
+pip install "mineru-vl-utils[transformers]==0.1.13"
 ```
 
 For `vllm-engine` and `vllm-async-engine` backend, install the package with the `vllm` extra:
 
 ```bash
-pip install "mineru-vl-utils[vllm]==0.1.12"
+pip install "mineru-vl-utils[vllm]==0.1.13"
 ```
 
 Notice:
