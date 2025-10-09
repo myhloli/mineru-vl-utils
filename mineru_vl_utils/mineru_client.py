@@ -453,6 +453,117 @@ class MinerUClient:
             tqdm_desc="Layout Output Parsing",
         )
 
+    def content_extract(
+        self,
+        image: Image.Image,
+        type: str = "text",
+        priority: int | None = None,
+    ) -> str | None:
+        blocks = [ContentBlock(type, [0.0, 0.0, 1.0, 1.0])]
+        block_images, prompts, params, _ = self.helper.prepare_for_extract(image, blocks)
+        if not (block_images and prompts and params):
+            return None
+        output = self.client.predict(block_images[0], prompts[0], params[0], priority)
+        blocks[0].content = output
+        blocks = self.helper.post_process(blocks)
+        return blocks[0].content if blocks else None
+
+    def batch_content_extract(
+        self,
+        images: list[Image.Image],
+        types: Sequence[str] | str = "text",
+        priority: Sequence[int | None] | int | None = None,
+    ) -> list[str | None]:
+        if isinstance(types, str):
+            types = [types] * len(images)
+        if len(types) != len(images):
+            raise Exception("Length of types must match length of images")
+        if priority is None and self.incremental_priority:
+            priority = list(range(len(images)))
+        blocks_list = [[ContentBlock(type, [0.0, 0.0, 1.0, 1.0])] for type in types]
+        all_images: list[Image.Image | bytes] = []
+        all_prompts: list[str] = []
+        all_params: list[SamplingParams | None] = []
+        all_indices: list[tuple[int, int]] = []
+        prepared_inputs = self.helper.batch_prepare_for_extract(self.executor, images, blocks_list)
+        for img_idx, (block_images, prompts, params, indices) in enumerate(prepared_inputs):
+            all_images.extend(block_images)
+            all_prompts.extend(prompts)
+            all_params.extend(params)
+            all_indices.extend([(img_idx, idx) for idx in indices])
+        outputs = self.client.batch_predict(all_images, all_prompts, all_params, priority)
+        for (img_idx, idx), output in zip(all_indices, outputs):
+            blocks_list[img_idx][idx].content = output
+        blocks_list = self.helper.batch_post_process(self.executor, blocks_list)
+        return [blocks[0].content if blocks else None for blocks in blocks_list]
+
+    async def aio_content_extract(
+        self,
+        image: Image.Image,
+        type: str = "text",
+        priority: int | None = None,
+        semaphore: asyncio.Semaphore | None = None,
+    ) -> str | None:
+        blocks = [ContentBlock(type, [0.0, 0.0, 1.0, 1.0])]
+        block_images, prompts, params, _ = await self.helper.aio_prepare_for_extract(self.executor, image, blocks)
+        if not (block_images and prompts and params):
+            return None
+        if semaphore is None:
+            output = await self.client.aio_predict(block_images[0], prompts[0], params[0], priority)
+        else:
+            async with semaphore:
+                output = await self.client.aio_predict(block_images[0], prompts[0], params[0], priority)
+        blocks[0].content = output
+        blocks = await self.helper.aio_post_process(self.executor, blocks)
+        return blocks[0].content if blocks else None
+
+    async def aio_batch_content_extract(
+        self,
+        images: list[Image.Image],
+        types: Sequence[str] | str = "text",
+        priority: Sequence[int | None] | int | None = None,
+        semaphore: asyncio.Semaphore | None = None,
+    ) -> list[str | None]:
+        if isinstance(types, str):
+            types = [types] * len(images)
+        if len(types) != len(images):
+            raise Exception("Length of types must match length of images")
+        if priority is None and self.incremental_priority:
+            priority = list(range(len(images)))
+        semaphore = semaphore or asyncio.Semaphore(self.max_concurrency)
+        blocks_list = [[ContentBlock(type, [0.0, 0.0, 1.0, 1.0])] for type in types]
+        all_images: list[Image.Image | bytes] = []
+        all_prompts: list[str] = []
+        all_params: list[SamplingParams | None] = []
+        all_indices: list[tuple[int, int]] = []
+        prepared_inputs = await gather_tasks(
+            tasks=[self.helper.aio_prepare_for_extract(self.executor, *args) for args in zip(images, blocks_list)],
+            use_tqdm=self.use_tqdm,
+            tqdm_desc="Extract Preparation",
+        )
+        for img_idx, (block_images, prompts, params, indices) in enumerate(prepared_inputs):
+            all_images.extend(block_images)
+            all_prompts.extend(prompts)
+            all_params.extend(params)
+            all_indices.extend([(img_idx, idx) for idx in indices])
+        outputs = await self.client.aio_batch_predict(
+            all_images,
+            all_prompts,
+            all_params,
+            priority,
+            semaphore=semaphore,
+            use_tqdm=self.use_tqdm,
+            tqdm_desc="Extraction",
+        )
+        for (img_idx, idx), output in zip(all_indices, outputs):
+            blocks_list[img_idx][idx].content = output
+        blocks_list = await gather_tasks(
+            tasks=[self.helper.aio_post_process(self.executor, blocks) for blocks in blocks_list],
+            use_tqdm=self.use_tqdm,
+            tqdm_desc="Post Processing",
+        )
+        return [blocks[0].content if blocks else None for blocks in blocks_list]
+
     def two_step_extract(
         self,
         image: Image.Image,
