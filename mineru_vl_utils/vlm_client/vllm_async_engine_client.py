@@ -55,7 +55,12 @@ class VllmAsyncEngineVlmClient(VlmClient):
         self.vllm_async_llm = vllm_async_llm
         if vllm_async_llm.tokenizer is None:
             raise ValueError("vllm_async_llm.tokenizer is None.")
-        self.tokenizer = vllm_async_llm.tokenizer.get_lora_tokenizer()
+
+        tokenizer = vllm_async_llm.tokenizer
+        if hasattr(tokenizer, "get_lora_tokenizer"):
+            tokenizer = tokenizer.get_lora_tokenizer()  # type: ignore
+
+        self.tokenizer = tokenizer
         self.model_max_length = vllm_async_llm.model_config.max_model_len
         self.VllmSamplingParams = SamplingParams
         self.VllmRequestOutputKind = RequestOutputKind
