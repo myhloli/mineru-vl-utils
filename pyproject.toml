@@ -38,9 +38,7 @@ transformers = [
 vllm = [
   "vllm>=0.10.0,<=0.11.0",
 ]
-mlx = [
-  "mlx-vlm",
-]
+mlx = ["mlx-vlm>=0.3.3"]
 
 [tool.black]
 line-length = 128
