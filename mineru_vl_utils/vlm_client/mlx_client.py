@@ -46,33 +46,64 @@ class MlxVlmClient(VlmClient):
         self.batch_size = batch_size
         self.use_tqdm = use_tqdm
 
+    def build_messages(self, prompt: str) -> list[dict]:
+        """根据传入的 prompt 构建消息结构。
+        与其他后端保持一致：支持 system 提示与 <image> 占位处理，
+        同时支持 text_before_image 的顺序切换。
+        """
+        prompt = prompt or self.prompt
+        messages: list[dict] = []
+        if self.system_prompt:
+            messages.append({"role": "system", "content": self.system_prompt})
+        if "<image>" in prompt:
+            prompt_1, prompt_2 = prompt.split("<image>", 1)
+            user_messages: list[dict] = []
+            if prompt_1.strip():
+                user_messages.append({"type": "text", "text": prompt_1})
+            user_messages.append({"type": "image"})
+            if prompt_2.strip():
+                user_messages.append({"type": "text", "text": prompt_2})
+        elif self.text_before_image:
+            user_messages = [
+                {"type": "text", "text": prompt},
+                {"type": "image"},
+            ]
+        else:
+            user_messages = [
+                {"type": "image"},
+                {"type": "text", "text": prompt},
+            ]
+        messages.append({"role": "user", "content": user_messages})
+        return messages
+    
     def predict(
         self,
         image: Image.Image | bytes | str,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
-        priority: int | None = None,  # MLX 本地运行不支持优先级
-    ) -> str:
-        # MLX 的 generate 函数本身不支持批量处理，所以我们直接调用
+        priority: int | None = None,
+        ) -> str:
         final_prompt = prompt or self.prompt
-        
-        # 构建 message
-        messages = [
-            {"role": "user", "content": f"<image>\n{final_prompt}"},
-        ]
-
-        # 构建采样参数
         final_sampling_params = self.build_sampling_params(sampling_params)
-        
+        # 构建 chat prompt（与 transformers/http-client 保持一致）
+        if hasattr(self.processor, "apply_chat_template"):
+            messages = self.build_messages(final_prompt)
+            chat_prompt = self.processor.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+        else:
+            # 兜底：纯文本 + <image> 占位
+            chat_prompt = f"<image>\n{final_prompt}"
+
         response = generate(
-            self.model,
-            self.processor,
-            image,
-            messages,
-            temperature=final_sampling_params.temperature or 0.7,
+            model=self.model,
+            processor=self.processor,
+            prompt=chat_prompt,
+            image=image,
+            temperature=final_sampling_params.temperature or 0.3,
             max_tokens=final_sampling_params.max_new_tokens or 1024,
         )
-        return response
+        return response.text
 
     def batch_predict(
         self,
