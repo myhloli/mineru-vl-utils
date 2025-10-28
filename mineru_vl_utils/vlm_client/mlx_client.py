@@ -11,9 +11,15 @@ from .base_client import (VlmClient,
 # 确保导入了 MLX 的相关函数
 try:
     from mlx_vlm import generate
+    # 专用于 MLX-VLM 的聊天模板工具，支持多图数量控制
+    try:
+        from mlx_vlm.prompt_utils import apply_chat_template as mlx_apply_chat_template
+    except Exception:  # pragma: no cover - 兼容旧版本 mlx-vlm
+        mlx_apply_chat_template = None
 except ImportError:
     # 允许在没有安装 mlx-vlm 的环境中导入此文件
     generate = None
+    mlx_apply_chat_template = None
 
 class MlxVlmClient(VlmClient):
     """
@@ -75,6 +81,30 @@ class MlxVlmClient(VlmClient):
             ]
         messages.append({"role": "user", "content": user_messages})
         return messages
+
+    def build_multi_image_prompt(self, prompt: str, num_images: int) -> str:
+        """
+        构建多图对话的 chat prompt。
+        优先使用 MLX-VLM 官方提供的 `apply_chat_template`，可显式指定图片数量，
+        若不可用，则退化为通过重复 <image> 标记进行提示的兼容实现。
+        """
+        prompt = prompt or self.prompt
+
+        # 优先使用 MLX 自带的模板函数（与官方示例一致）
+        if mlx_apply_chat_template is not None:
+            try:
+                config = getattr(self.model, "config", None)
+                return mlx_apply_chat_template(self.processor, config, prompt, num_images=num_images)
+            except Exception:
+                # 继续走到兜底逻辑
+                pass
+
+        # 兜底：根据 text_before_image 决定 <image> 与文本的顺序
+        image_tokens = "\n".join(["<image>"] * max(1, int(num_images)))
+        if self.text_before_image:
+            return f"{prompt}\n{image_tokens}"
+        else:
+            return f"{image_tokens}\n{prompt}"
     
     def predict(
         self,
@@ -105,6 +135,36 @@ class MlxVlmClient(VlmClient):
         )
         return response.text
 
+    def predict_multi_images(
+        self,
+        images: Sequence[Image.Image | bytes | str],
+        prompt: str = "",
+        sampling_params: SamplingParams | None = None,
+        priority: int | None = None,
+    ) -> str:
+        """
+        多图单轮对话推理：在一次 `generate` 调用中同时传入多张图片，
+        适用于需要跨图对比/联合推理的场景（与官方 Multi-Image Chat Support 一致）。
+
+        注意：该接口与 `predict` 的差异在于 `images` 为序列，且内部优先使用
+        `mlx_vlm.prompt_utils.apply_chat_template(..., num_images=len(images))` 来构建提示。
+        """
+        final_prompt = prompt or self.prompt
+        final_sampling_params = self.build_sampling_params(sampling_params)
+
+        chat_prompt = self.build_multi_image_prompt(final_prompt, num_images=len(images))
+
+        # 参考官方示例使用位置参数传递 images，以兼容不同版本签名
+        response = generate(
+            self.model,
+            self.processor,
+            chat_prompt,
+            images,
+            temperature=final_sampling_params.temperature or 0.3,
+            max_tokens=final_sampling_params.max_new_tokens or 1024,
+        )
+        return getattr(response, "text", response)
+
     def batch_predict(
         self,
         images: Sequence[Image.Image | bytes | str],
@@ -133,6 +193,39 @@ class MlxVlmClient(VlmClient):
             )
             results.append(result)
             
+        return results
+
+    def batch_predict_multi_images(
+        self,
+        images_list: Sequence[Sequence[Image.Image | bytes | str]],
+        prompts: Sequence[str] | str = "",
+        sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
+        priority: Sequence[int | None] | int | None = None,
+    ) -> list[str]:
+        """
+        多图批量推理：`images_list` 的每个元素代表一次对话中使用的多张图片序列。
+        会循环调用 `predict_multi_images` 收集结果，支持进度条显示。
+        """
+        results: list[str] = []
+
+        # prompts / sampling_params 广播
+        if isinstance(prompts, str):
+            prompts = [prompts] * len(images_list)
+        if not isinstance(sampling_params, Sequence):
+            sampling_params = [sampling_params] * len(images_list)
+
+        iterable = range(len(images_list))
+        if self.use_tqdm:
+            iterable = tqdm(iterable, desc="使用 MLX 多图批量处理中")
+
+        for i in iterable:
+            result = self.predict_multi_images(
+                images=images_list[i],
+                prompt=prompts[i],
+                sampling_params=sampling_params[i],
+            )
+            results.append(result)
+
         return results
 
     async def aio_predict(
@@ -171,6 +264,44 @@ class MlxVlmClient(VlmClient):
         return await asyncio.to_thread(
             self.batch_predict,
             images,
+            prompts,
+            sampling_params,
+            priority,
+        )
+
+    async def aio_predict_multi_images(
+        self,
+        images: Sequence[Image.Image | bytes | str],
+        prompt: str = "",
+        sampling_params: SamplingParams | None = None,
+        priority: int | None = None,
+    ) -> str:
+        """
+        异步多图单轮推理：将同步 `predict_multi_images` 移至线程池执行，避免阻塞事件循环。
+        """
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None,
+            self.predict_multi_images,
+            images,
+            prompt,
+            sampling_params,
+            priority,
+        )
+
+    async def aio_batch_predict_multi_images(
+        self,
+        images_list: Sequence[Sequence[Image.Image | bytes | str]],
+        prompts: Sequence[str] | str = "",
+        sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
+        priority: Sequence[int | None] | int | None = None,
+    ) -> list[str]:
+        """
+        异步多图批量推理：在线程池中执行 `batch_predict_multi_images`。
+        """
+        return await asyncio.to_thread(
+            self.batch_predict_multi_images,
+            images_list,
             prompts,
             sampling_params,
             priority,
