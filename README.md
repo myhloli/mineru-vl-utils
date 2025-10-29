@@ -160,7 +160,7 @@ model = Qwen2VLForConditionalGeneration.from_pretrained(
 ### `mlx-engine` Example
 
 ```python
-from mlx_vlm import load, generate
+from mlx_vlm import load as mlx_load
 from PIL import Image
 from mineru_vl_utils import MinerUClient
 
