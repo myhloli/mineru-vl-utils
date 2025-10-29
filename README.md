@@ -11,9 +11,9 @@ We provides 4 different backends(deployment modes):
 
 1. **http-client**: A HTTP client for interacting with the OpenAI-compatible model server.
 2. **transformers**: A backend for using HuggingFace Transformers models. (slow but simple to install)
-4. **mlx**: A backend for use M series Apple Silicon arm64 Device with Macos.
-5. **vllm-engine**: A backend for using the VLLM synchronous batching engine.
-6. **vllm-async-engine**: A backend for using the VLLM asynchronous engine. (requires async programming)
+3. **mlx-engine**: A backend for use Apple Silicon Device with macOS.
+4. **vllm-engine**: A backend for using the VLLM synchronous batching engine.
+5. **vllm-async-engine**: A backend for using the VLLM asynchronous engine. (requires async programming)
 
 ## About Output Format
 
@@ -61,7 +61,7 @@ For `vllm-engine` and `vllm-async-engine` backend, install the package with the 
 pip install "mineru-vl-utils[vllm]==0.1.15"
 ```
 
-For `mlx` backend, install the package with the `mlx` extra:
+For `mlx-engine` backend, install the package with the `mlx` extra:
 
 ```bash
 pip install "mineru-vl-utils[mlx]==0.1.15"
@@ -157,32 +157,24 @@ model = Qwen2VLForConditionalGeneration.from_pretrained(
 )
 ```
 
-### `mlx` Example
-
-#### Make sure mlx-vlm is installed
-#### pip install --upgrade mlx-vlm
+### `mlx-engine` Example
 
 ```python
 from mlx_vlm import load, generate
-from mlx_vlm.prompt_utils import apply_chat_template
-from mlx_vlm.utils import load_config
+from PIL import Image
+from mineru_vl_utils import MinerUClient
 
-# Load the model
-model, processor = load("mlx-community/MinerU2.5-2509-1.2B-bf16")
-config = load_config("mlx-community/MinerU2.5-2509-1.2B-bf16")
+model, processor = mlx_load("opendatalab/MinerU2.5-2509-1.2B")
 
-# Prepare input
-image = ["http://images.cocodataset.org/val2017/000000039769.jpg"]
-prompt = "Describe this image."
-
-# Apply chat template
-formatted_prompt = apply_chat_template(
-    processor, config, prompt, num_images=1
+client = MinerUClient(
+    backend="mlx-engine",
+    model=model,
+    processor=processor
 )
 
-# Generate output
-output = generate(model, processor, formatted_prompt, image)
-print(output)
+image = Image.open("/path/to/the/test/image.png")
+extracted_blocks = client.two_step_extract(image)
+print(extracted_blocks)
 ```
 
 
