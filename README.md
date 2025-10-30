@@ -46,31 +46,30 @@ Each `ContentBlock` contains the following attributes:
 For `http-client` backend, just install the package via pip:
 
 ```bash
-pip install mineru-vl-utils==0.1.14
+pip install -U mineru-vl-utils
 ```
 
 For `transformers` backend, install the package with the `transformers` extra:
 
 ```bash
-pip install "mineru-vl-utils[transformers]==0.1.15"
+pip install -U "mineru-vl-utils[transformers]"
 ```
 
 For `vllm-engine` and `vllm-async-engine` backend, install the package with the `vllm` extra:
 
 ```bash
-pip install "mineru-vl-utils[vllm]==0.1.15"
+pip install -U "mineru-vl-utils[vllm]"
 ```
 
 For `mlx-engine` backend, install the package with the `mlx` extra:
 
 ```bash
-pip install "mineru-vl-utils[mlx]==0.1.15"
+pip install -U "mineru-vl-utils[mlx]"
 ```
 
-Notice:
-
-- For using the `http-client` backend, you still need to have another
-  `vllm`(or other LLM deployment tool) environment to serve the model as a http server.
+> [!NOTE]
+> For using the `http-client` backend, you still need to have another 
+> `vllm`(or other LLM deployment tool) environment to serve the model as a http server.
 
 ## Serving the Model (Optional)
 
