@@ -35,11 +35,12 @@ class MlxVlmClient(VlmClient):
         self.processor = processor
         self.batch_size = batch_size
         self.use_tqdm = use_tqdm
+        self.model_max_length = model.config.text_config.max_position_embeddings
         try:
             from mlx_vlm import generate
             self.generate = generate
         except ImportError:
-           raise ImportError("Please install mlx-vlm to use the mlx-engine backend.")
+            raise ImportError("Please install mlx-vlm to use the mlx-engine backend.")
 
     def build_messages(self, prompt: str) -> list[dict]:
         prompt = prompt or self.prompt
@@ -67,15 +68,18 @@ class MlxVlmClient(VlmClient):
         return messages
 
     def build_generate_kwargs(self, sampling_params: SamplingParams | None):
-          sp = self.build_sampling_params(sampling_params)
-  
-          generate_kwargs = {
-                "temperature": sp.temperature or 0.0,
-                "top_p": sp.top_p or 0.01,
-            }
-          if sp.max_new_tokens is not None:
-                generate_kwargs["max_new_tokens"] = sp.max_new_tokens
-          return generate_kwargs
+        sp = self.build_sampling_params(sampling_params)
+        generate_kwargs = {
+            "temperature": sp.temperature,
+            "top_p": sp.top_p,
+            "top_k": sp.top_k,
+            "presence_penalty": sp.presence_penalty,
+            "frequency_penalty": sp.frequency_penalty,
+            "repetition_penalty": sp.repetition_penalty,
+            # max_tokens should smaller than model max length
+            "max_tokens": sp.max_new_tokens if sp.max_new_tokens is not None else self.model_max_length,
+        }
+        return generate_kwargs
 
     def predict(
             self,
@@ -86,9 +90,9 @@ class MlxVlmClient(VlmClient):
     ) -> str:
 
         chat_prompt = self.processor.apply_chat_template(
-              self.build_messages(prompt),
-              tokenize=False,
-              add_generation_prompt=True,
+            self.build_messages(prompt),
+            tokenize=False,
+            add_generation_prompt=True,
         )
 
         generate_kwargs = self.build_generate_kwargs(sampling_params)
@@ -113,7 +117,6 @@ class MlxVlmClient(VlmClient):
 
         images_len = len(images)
 
-        # 准备 prompts 和 sampling_params 列表
         if isinstance(prompts, str):
             prompts = [prompts] * images_len
         if not isinstance(sampling_params, Sequence):
