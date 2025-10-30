@@ -288,6 +288,8 @@ class MinerUClient:
         http_timeout: int = 600,  # for http-client backend only
         use_tqdm: bool = True,
         debug: bool = False,
+        max_retries: int = 3,  # for http-client backend only
+        retry_backoff_factor: float = 0.5,  # for http-client backend only
     ) -> None:
         if backend == "transformers":
             if model is None or processor is None:
@@ -367,6 +369,8 @@ class MinerUClient:
             http_timeout=http_timeout,
             use_tqdm=use_tqdm,
             debug=debug,
+            max_retries=max_retries,
+            retry_backoff_factor=retry_backoff_factor,
         )
         self.helper = MinerUClientHelper(
             backend=backend,
