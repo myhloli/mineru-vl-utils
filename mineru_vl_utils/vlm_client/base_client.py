@@ -159,6 +159,8 @@ def new_vlm_client(
     http_timeout: int = 600,
     use_tqdm: bool = True,
     debug: bool = False,
+    max_retries: int = 3,
+    retry_backoff_factor: float = 0.5,
 ) -> VlmClient:
 
     if backend == "http-client":
@@ -176,6 +178,8 @@ def new_vlm_client(
             max_concurrency=max_concurrency,
             http_timeout=http_timeout,
             debug=debug,
+            max_retries=max_retries,
+            retry_backoff_factor=retry_backoff_factor,
         )
 
     elif backend == "transformers":
