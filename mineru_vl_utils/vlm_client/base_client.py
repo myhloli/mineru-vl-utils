@@ -141,7 +141,7 @@ class VlmClient:
 
 
 def new_vlm_client(
-    backend: Literal["http-client", "transformers", "vllm-engine", "vllm-async-engine"],
+    backend: Literal["http-client", "transformers", "mlx-engine", "vllm-engine", "vllm-async-engine"],
     model_name: str | None = None,
     server_url: str | None = None,
     server_headers: dict[str, str] | None = None,
@@ -182,6 +182,21 @@ def new_vlm_client(
         from .transformers_client import TransformersVlmClient
 
         return TransformersVlmClient(
+            model=model,
+            processor=processor,
+            prompt=prompt,
+            system_prompt=system_prompt,
+            sampling_params=sampling_params,
+            text_before_image=text_before_image,
+            allow_truncated_content=allow_truncated_content,
+            batch_size=batch_size,
+            use_tqdm=use_tqdm,
+        )
+
+    elif backend == "mlx-engine":
+        from .mlx_client import MlxVlmClient
+
+        return MlxVlmClient(
             model=model,
             processor=processor,
             prompt=prompt,

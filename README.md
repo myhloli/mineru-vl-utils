@@ -11,8 +11,9 @@ We provides 4 different backends(deployment modes):
 
 1. **http-client**: A HTTP client for interacting with the OpenAI-compatible model server.
 2. **transformers**: A backend for using HuggingFace Transformers models. (slow but simple to install)
-3. **vllm-engine**: A backend for using the VLLM synchronous batching engine.
-4. **vllm-async-engine**: A backend for using the VLLM asynchronous engine. (requires async programming)
+3. **mlx-engine**: A backend for using Apple Silicon devices with macOS.
+4. **vllm-engine**: A backend for using the VLLM synchronous batching engine.
+5. **vllm-async-engine**: A backend for using the VLLM asynchronous engine. (requires async programming)
 
 ## About Output Format
 
@@ -29,11 +30,11 @@ Each `ContentBlock` contains the following attributes:
 - `bbox` (list of floats): The bounding box of the block in the format [xmin, ymin, xmax, ymax],
   with coordinates normalized to the range [0, 1].
 - `angle` (int or None): The rotation angle of the block, can be one of [0, 90, 180, 270].
-   - `0` means upward.
-   - `90` means rightward.
-   - `180` means upside down.
-   - `270` means leftward.
-   - `None` means the angle is not specified.
+  - `0` means upward.
+  - `90` means rightward.
+  - `180` means upside down.
+  - `270` means leftward.
+  - `None` means the angle is not specified.
 - `content` (str or None): The recognized content of the block, if applicable.
   - For 'text' blocks, this is the recognized text.
   - For 'table' blocks, this is the recognized table in HTML format.
@@ -51,18 +52,25 @@ pip install mineru-vl-utils==0.1.14
 For `transformers` backend, install the package with the `transformers` extra:
 
 ```bash
-pip install "mineru-vl-utils[transformers]==0.1.14"
+pip install "mineru-vl-utils[transformers]==0.1.15"
 ```
 
 For `vllm-engine` and `vllm-async-engine` backend, install the package with the `vllm` extra:
 
 ```bash
-pip install "mineru-vl-utils[vllm]==0.1.14"
+pip install "mineru-vl-utils[vllm]==0.1.15"
+```
+
+For `mlx-engine` backend, install the package with the `mlx` extra:
+
+```bash
+pip install "mineru-vl-utils[mlx]==0.1.15"
 ```
 
 Notice:
+
 - For using the `http-client` backend, you still need to have another
-`vllm`(or other LLM deployment tool) environment to serve the model as a http server.
+  `vllm`(or other LLM deployment tool) environment to serve the model as a http server.
 
 ## Serving the Model (Optional)
 
@@ -148,6 +156,27 @@ model = Qwen2VLForConditionalGeneration.from_pretrained(
     device_map="auto"
 )
 ```
+
+### `mlx-engine` Example
+
+```python
+from mlx_vlm import load as mlx_load
+from PIL import Image
+from mineru_vl_utils import MinerUClient
+
+model, processor = mlx_load("opendatalab/MinerU2.5-2509-1.2B")
+
+client = MinerUClient(
+    backend="mlx-engine",
+    model=model,
+    processor=processor
+)
+
+image = Image.open("/path/to/the/test/image.png")
+extracted_blocks = client.two_step_extract(image)
+print(extracted_blocks)
+```
+
 
 ### `vllm-engine` Example
 
