@@ -124,7 +124,7 @@ class MlxVlmClient(VlmClient):
 
         with tqdm(total=images_len, desc="Predict", disable=not self.use_tqdm) as pbar:
 
-            # 由于 mlx-vlm 的 generate 函数不是批处理的，我们只能循环调用
+            # Since mlx-vlm's generate function does not support batching, we can only call it in a loop
             for i in range(0, images_len):
                 result = self.predict(
                     image=images[i],
