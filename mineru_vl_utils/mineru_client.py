@@ -263,7 +263,7 @@ class MinerUClientHelper:
 class MinerUClient:
     def __init__(
         self,
-        backend: Literal["http-client", "transformers", "vllm-engine", "vllm-async-engine"],
+        backend: Literal["http-client", "transformers", "mlx-engine", "vllm-engine", "vllm-async-engine"],
         model_name: str | None = None,
         server_url: str | None = None,
         server_headers: dict[str, str] | None = None,
@@ -288,6 +288,8 @@ class MinerUClient:
         http_timeout: int = 600,  # for http-client backend only
         use_tqdm: bool = True,
         debug: bool = False,
+        max_retries: int = 3,  # for http-client backend only
+        retry_backoff_factor: float = 0.5,  # for http-client backend only
     ) -> None:
         if backend == "transformers":
             if model is None or processor is None:
@@ -315,6 +317,16 @@ class MinerUClient:
                     )
                 if processor is None:
                     processor = AutoProcessor.from_pretrained(model_path, use_fast=True)
+        elif backend == "mlx-engine":
+            if model is None or processor is None:
+                if not model_path:
+                    raise ValueError("model_path must be provided when model or processor is None.")
+
+                try:
+                    from mlx_vlm import load as mlx_load
+                except ImportError:
+                    raise ImportError("Please install mlx-vlm to use the mlx-engine backend.")
+                model, processor = mlx_load(model_path)
 
         elif backend == "vllm-engine":
             if vllm_llm is None:
@@ -357,6 +369,8 @@ class MinerUClient:
             http_timeout=http_timeout,
             use_tqdm=use_tqdm,
             debug=debug,
+            max_retries=max_retries,
+            retry_backoff_factor=retry_backoff_factor,
         )
         self.helper = MinerUClientHelper(
             backend=backend,

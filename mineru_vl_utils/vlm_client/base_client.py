@@ -141,7 +141,7 @@ class VlmClient:
 
 
 def new_vlm_client(
-    backend: Literal["http-client", "transformers", "vllm-engine", "vllm-async-engine"],
+    backend: Literal["http-client", "transformers", "mlx-engine", "vllm-engine", "vllm-async-engine"],
     model_name: str | None = None,
     server_url: str | None = None,
     server_headers: dict[str, str] | None = None,
@@ -159,6 +159,8 @@ def new_vlm_client(
     http_timeout: int = 600,
     use_tqdm: bool = True,
     debug: bool = False,
+    max_retries: int = 3,
+    retry_backoff_factor: float = 0.5,
 ) -> VlmClient:
 
     if backend == "http-client":
@@ -176,12 +178,29 @@ def new_vlm_client(
             max_concurrency=max_concurrency,
             http_timeout=http_timeout,
             debug=debug,
+            max_retries=max_retries,
+            retry_backoff_factor=retry_backoff_factor,
         )
 
     elif backend == "transformers":
         from .transformers_client import TransformersVlmClient
 
         return TransformersVlmClient(
+            model=model,
+            processor=processor,
+            prompt=prompt,
+            system_prompt=system_prompt,
+            sampling_params=sampling_params,
+            text_before_image=text_before_image,
+            allow_truncated_content=allow_truncated_content,
+            batch_size=batch_size,
+            use_tqdm=use_tqdm,
+        )
+
+    elif backend == "mlx-engine":
+        from .mlx_client import MlxVlmClient
+
+        return MlxVlmClient(
             model=model,
             processor=processor,
             prompt=prompt,

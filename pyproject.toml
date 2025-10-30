@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mineru_vl_utils"
-version = "0.1.14"
+version = "0.1.15"
 authors = [
   { name="Jin Zhen Jiang", email="jinzhenjiang@pjlab.org.cn" },
 ]
@@ -13,6 +13,7 @@ readme = "README.md"
 requires-python = ">=3.10,<3.14"
 dependencies = [
   "httpx",
+  "httpx-retries",
   "aiofiles",
   "pillow",
   "pydantic",
@@ -37,6 +38,9 @@ transformers = [
 ]
 vllm = [
   "vllm>=0.10.0,<=0.11.0",
+]
+mlx = [
+  "mlx-vlm>=0.3.3,<0.4.0",
 ]
 
 [tool.black]
