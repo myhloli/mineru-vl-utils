@@ -11,7 +11,7 @@ We provides 4 different backends(deployment modes):
 
 1. **http-client**: A HTTP client for interacting with the OpenAI-compatible model server.
 2. **transformers**: A backend for using HuggingFace Transformers models. (slow but simple to install)
-3. **mlx-engine**: A backend for use Apple Silicon Device with macOS.
+3. **mlx-engine**: A backend for using Apple Silicon devices with macOS.
 4. **vllm-engine**: A backend for using the VLLM synchronous batching engine.
 5. **vllm-async-engine**: A backend for using the VLLM asynchronous engine. (requires async programming)
 
