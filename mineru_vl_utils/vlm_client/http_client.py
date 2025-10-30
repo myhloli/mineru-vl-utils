@@ -63,7 +63,6 @@ class HttpVlmClient(VlmClient):
         self.debug = debug
         self.headers = server_headers
         self.retry = Retry(total=max_retries, backoff_factor=retry_backoff_factor)
-        self.transport = RetryTransport(retry=self.retry)
 
         if not server_url:
             server_url = _get_env("MINERU_VL_SERVER")
@@ -88,7 +87,7 @@ class HttpVlmClient(VlmClient):
 
     def _check_model_name(self, base_url: str, model_name: str):
         try:
-            with httpx.Client(transport=self.transport) as client:
+            with httpx.Client(transport=RetryTransport(retry=self.retry)) as client:
                 response = client.get(f"{base_url}/v1/models", headers=self.headers, timeout=self.http_timeout)
         except httpx.ConnectError:
             raise ServerError(f"Failed to connect to server {base_url}. Please check if the server is running.")
@@ -106,7 +105,7 @@ class HttpVlmClient(VlmClient):
 
     def _get_model_name(self, base_url: str) -> str:
         try:
-            with httpx.Client(transport=self.transport) as client:
+            with httpx.Client(transport=RetryTransport(retry=self.retry)) as client:
                 response = client.get(f"{base_url}/v1/models", headers=self.headers, timeout=self.http_timeout)
         except httpx.ConnectError:
             raise ServerError(f"Failed to connect to server {base_url}. Please check if the server is running.")
@@ -261,7 +260,7 @@ class HttpVlmClient(VlmClient):
                 request_text = request_text[:2048] + "...(truncated)..." + request_text[-2048:]
             print(f"Request body: {request_text}")
 
-        with httpx.Client(transport=self.transport) as client:
+        with httpx.Client(transport=RetryTransport(retry=self.retry)) as client:
             response = client.post(
                 self.chat_url,
                 json=request_body,
@@ -330,7 +329,7 @@ class HttpVlmClient(VlmClient):
                 request_text = request_text[:2048] + "...(truncated)..." + request_text[-2048:]
             print(f"Request body: {request_text}")
 
-        with httpx.Client(transport=self.transport) as client:
+        with httpx.Client(transport=RetryTransport(retry=self.retry)) as client:
             with client.stream(
                 "POST",
                 self.chat_url,
@@ -403,7 +402,7 @@ class HttpVlmClient(VlmClient):
             print(f"Request body: {request_text}")
 
         if async_client is None:
-            async with httpx.AsyncClient(transport=self.transport, timeout=self.http_timeout) as client:
+            async with httpx.AsyncClient(transport=RetryTransport(retry=self.retry), timeout=self.http_timeout) as client:
                 response = await client.post(self.chat_url, json=request_body, headers=self.headers)
                 response_data = self.get_response_data(response)
         else:
@@ -457,7 +456,7 @@ class HttpVlmClient(VlmClient):
                 )
 
         async with httpx.AsyncClient(
-            transport=self.transport,
+            transport=RetryTransport(retry=self.retry),
             timeout=self.http_timeout,
             headers=self.headers,
             limits=httpx.Limits(max_connections=None, max_keepalive_connections=20),
@@ -517,7 +516,7 @@ class HttpVlmClient(VlmClient):
                 return (idx, output)
 
         async with httpx.AsyncClient(
-            transport=self.transport,
+            transport=RetryTransport(retry=self.retry),
             timeout=self.http_timeout,
             headers=self.headers,
             limits=httpx.Limits(max_connections=None, max_keepalive_connections=20),
