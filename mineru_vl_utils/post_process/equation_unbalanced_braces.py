@@ -1,5 +1,5 @@
 # Copyright (c) Opendatalab. All rights reserved.
-def try_fix_unbalanced_braces(latex_formula, debug: bool = False):
+def try_fix_unbalanced_braces(latex_formula: str, debug: bool = False):
     """
     检测LaTeX公式中的花括号是否闭合，并删除无法配对的花括号
 
