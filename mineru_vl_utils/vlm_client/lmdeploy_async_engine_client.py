@@ -1,6 +1,4 @@
 import asyncio
-import uuid
-import random
 from io import BytesIO
 from typing import Sequence
 
@@ -44,7 +42,7 @@ class LmdeployAsyncEngineVlmClient(VlmClient):
             from lmdeploy import GenerationConfig
             self.gen_config = GenerationConfig(skip_special_tokens=False, max_new_tokens=16384, top_k=1, top_p=0.01, do_sample=True)
         except ImportError:
-            raise ImportError("Please install lmdeploy to use LmdeployEngineVlmClient.")
+            raise ImportError("Please install lmdeploy to use LmdeployAsyncEngineVlmClient.")
         self.max_concurrency = max_concurrency
         self.session_id = 0
         self.debug = debug
@@ -88,12 +86,12 @@ class LmdeployAsyncEngineVlmClient(VlmClient):
             image = Image.open(BytesIO(image))
         image = get_rgb_image(image)
 
-        lmdploy_prompts = [(prompt, image),]
+        lmdeploy_prompts = [(prompt, image),]
         generate_kwargs = {}
         if priority is not None:
             generate_kwargs["priority"] = priority
 
-        lmdeploy_prompts = self.lmdeploy_engine._convert_prompts(lmdploy_prompts)[0]
+        lmdeploy_prompts = self.lmdeploy_engine._convert_prompts(lmdeploy_prompts)[0]
         final_output = ''
         self.session_id += 1
         async for output in self.lmdeploy_engine.generate(
@@ -104,7 +102,7 @@ class LmdeployAsyncEngineVlmClient(VlmClient):
         ):
             final_output += output.response
 
-        if final_output is None:  # this should not happen
+        if not final_output:  # this should not happen
             raise ServerError("No output from the server.")
 
         return final_output
