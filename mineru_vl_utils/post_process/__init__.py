@@ -1,3 +1,4 @@
+from .equation_unbalanced_braces import try_fix_unbalanced_braces
 from ..structs import ContentBlock
 from .equation_block import do_handle_equation_block
 from .equation_double_subscript import try_fix_equation_double_subscript
@@ -23,6 +24,7 @@ def _process_equation(content: str, debug: bool) -> str:
     content = try_fix_equation_eqqcolon(content, debug=debug)
     content = try_fix_equation_big(content, debug=debug)
     content = try_fix_equation_leq(content, debug=debug)
+    content = try_fix_unbalanced_braces(content, debug=debug)
     return content
 
 
