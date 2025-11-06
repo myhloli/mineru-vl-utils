@@ -271,6 +271,7 @@ class MinerUClient:
         processor=None,  # transformers processor
         vllm_llm=None,  # vllm.LLM model
         vllm_async_llm=None,  # vllm.v1.engine.async_llm.AsyncLLM instance
+        lmdeploy_engine=None,  # lmdeploy.serve.vl_async_engine.VLAsyncEngine instance
         model_path: str | None = None,
         prompts: dict[str, str] = DEFAULT_PROMPTS,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
@@ -328,6 +329,20 @@ class MinerUClient:
                     raise ImportError("Please install mlx-vlm to use the mlx-engine backend.")
                 model, processor = mlx_load(model_path)
 
+        elif backend == "lmdeploy-engine" or backend == "lmdeploy-async-engine":
+            if lmdeploy_engine is None:
+                if not model_path:
+                    raise ValueError("model_path must be provided when lmdeploy_engine is None.")
+
+                try:
+                    from lmdeploy.serve.vl_async_engine import VLAsyncEngine
+                    from lmdeploy import PytorchEngineConfig
+                except ImportError:
+                    raise ImportError("Please install lmdeploy to use the lmdeploy-(async)-engine backend.")
+
+                lmdeploy_engine = VLAsyncEngine(model_path, backend='pytorch',
+                                    backend_config=PytorchEngineConfig(tp=1, session_len=16384))
+
         elif backend == "vllm-engine":
             if vllm_llm is None:
                 if not model_path:
@@ -360,6 +375,7 @@ class MinerUClient:
             server_headers=server_headers,
             model=model,
             processor=processor,
+            lmdeploy_engine=lmdeploy_engine,
             vllm_llm=vllm_llm,
             vllm_async_llm=vllm_async_llm,
             system_prompt=system_prompt,
