@@ -263,7 +263,14 @@ class MinerUClientHelper:
 class MinerUClient:
     def __init__(
         self,
-        backend: Literal["http-client", "transformers", "mlx-engine", "vllm-engine", "vllm-async-engine"],
+        backend: Literal[
+            "http-client",
+            "transformers",
+            "mlx-engine",
+            "lmdeploy-engine",
+            "vllm-engine",
+            "vllm-async-engine",
+        ],
         model_name: str | None = None,
         server_url: str | None = None,
         server_headers: dict[str, str] | None = None,
@@ -329,19 +336,22 @@ class MinerUClient:
                     raise ImportError("Please install mlx-vlm to use the mlx-engine backend.")
                 model, processor = mlx_load(model_path)
 
-        elif backend == "lmdeploy-engine" or backend == "lmdeploy-async-engine":
+        elif backend == "lmdeploy-engine":
             if lmdeploy_engine is None:
                 if not model_path:
                     raise ValueError("model_path must be provided when lmdeploy_engine is None.")
 
                 try:
-                    from lmdeploy.serve.vl_async_engine import VLAsyncEngine
                     from lmdeploy import PytorchEngineConfig
+                    from lmdeploy.serve.vl_async_engine import VLAsyncEngine
                 except ImportError:
                     raise ImportError("Please install lmdeploy to use the lmdeploy-(async)-engine backend.")
 
-                lmdeploy_engine = VLAsyncEngine(model_path, backend='pytorch',
-                                    backend_config=PytorchEngineConfig(tp=1, session_len=16384))
+                lmdeploy_engine = VLAsyncEngine(
+                    model_path,
+                    backend="pytorch",
+                    backend_config=PytorchEngineConfig(),
+                )
 
         elif backend == "vllm-engine":
             if vllm_llm is None:
@@ -409,7 +419,7 @@ class MinerUClient:
         self.use_tqdm = use_tqdm
         self.debug = debug
 
-        if backend in ("http-client", "vllm-async-engine"):
+        if backend in ("http-client", "vllm-async-engine", "lmdeploy-engine"):
             self.batching_mode = "concurrent"
         else:  # backend in ("transformers", "vllm-engine")
             self.batching_mode = "stepping"
