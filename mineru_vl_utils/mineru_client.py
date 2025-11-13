@@ -342,15 +342,12 @@ class MinerUClient:
                     raise ValueError("model_path must be provided when lmdeploy_engine is None.")
 
                 try:
-                    from lmdeploy import PytorchEngineConfig
                     from lmdeploy.serve.vl_async_engine import VLAsyncEngine
                 except ImportError:
-                    raise ImportError("Please install lmdeploy to use the lmdeploy-(async)-engine backend.")
+                    raise ImportError("Please install lmdeploy to use the lmdeploy-engine backend.")
 
                 lmdeploy_engine = VLAsyncEngine(
                     model_path,
-                    backend="pytorch",
-                    backend_config=PytorchEngineConfig(),
                 )
 
         elif backend == "vllm-engine":
