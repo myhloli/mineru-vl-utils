@@ -1,8 +1,6 @@
 import importlib
 from typing import TYPE_CHECKING
-
-__version__ = "0.1.14"
-__version_info__ = (0, 1, 14)
+from mineru_vl_utils.version import __version__
 
 __lazy_attrs__ = {
     "MinerUClient": (".mineru_client", "MinerUClient"),
@@ -31,5 +29,4 @@ __all__ = [
     "MinerUSamplingParams",
     "MinerULogitsProcessor",
     "__version__",
-    "__version_info__",
 ]
