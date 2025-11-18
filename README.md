@@ -7,13 +7,14 @@ and handling responses from the MinerU Vision-Language Model.
 
 ## About Backends
 
-We provides 4 different backends(deployment modes):
+We provides 6 different backends(deployment modes):
 
 1. **http-client**: A HTTP client for interacting with the OpenAI-compatible model server.
 2. **transformers**: A backend for using HuggingFace Transformers models. (slow but simple to install)
 3. **mlx-engine**: A backend for using Apple Silicon devices with macOS.
-4. **vllm-engine**: A backend for using the VLLM synchronous batching engine.
-5. **vllm-async-engine**: A backend for using the VLLM asynchronous engine. (requires async programming)
+4. **lmdeploy-engine**: A backend for using the LmDeploy engine.
+5. **vllm-engine**: A backend for using the VLLM synchronous batching engine.
+6. **vllm-async-engine**: A backend for using the VLLM asynchronous engine. (requires async programming)
 
 ## About Output Format
 
@@ -65,6 +66,12 @@ For `mlx-engine` backend, install the package with the `mlx` extra:
 
 ```bash
 pip install -U "mineru-vl-utils[mlx]"
+```
+
+For `lmdeploy-engine` backend, install the package with the `lmdeploy` extra:
+
+```bash
+pip install -U "mineru-vl-utils[lmdeploy]"
 ```
 
 > [!NOTE]
@@ -176,6 +183,54 @@ extracted_blocks = client.two_step_extract(image)
 print(extracted_blocks)
 ```
 
+### `lmdeploy-engine` Example
+
+For default inference engine(`turbomind` by now).
+
+```python
+from lmdeploy.serve.vl_async_engine import VLAsyncEngine
+from mineru_vl_utils import MinerUClient
+from PIL import Image
+
+if __name__ == "__main__":
+    lmdeploy_engine = VLAsyncEngine("opendatalab/MinerU2.5-2509-1.2B")
+
+    client = MinerUClient(
+        backend="lmdeploy-engine",
+        lmdeploy_engine=lmdeploy_engine,
+    )
+
+    image = Image.open("/path/to/the/test/image.png")
+    extracted_blocks = client.two_step_extract(image)
+    print(extracted_blocks)
+```
+
+For pytorch inference engine and `ascend` accelerator.
+
+```python
+from lmdeploy import PytorchEngineConfig
+from lmdeploy.serve.vl_async_engine import VLAsyncEngine
+from mineru_vl_utils import MinerUClient
+from PIL import Image
+
+if __name__ == "__main__":
+    lmdeploy_engine = VLAsyncEngine(
+        "opendatalab/MinerU2.5-2509-1.2B",
+        backend="pytorch",
+        backend_config=PytorchEngineConfig(
+            device_type="ascend",
+        ),
+    )
+
+    client = MinerUClient(
+        backend="lmdeploy-engine",
+        lmdeploy_engine=lmdeploy_engine,
+    )
+
+    image = Image.open("/path/to/the/test/image.png")
+    extracted_blocks = client.two_step_extract(image)
+    print(extracted_blocks)
+```
 
 ### `vllm-engine` Example
 

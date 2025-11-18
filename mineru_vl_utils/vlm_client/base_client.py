@@ -141,12 +141,20 @@ class VlmClient:
 
 
 def new_vlm_client(
-    backend: Literal["http-client", "transformers", "mlx-engine", "vllm-engine", "vllm-async-engine"],
+    backend: Literal[
+        "http-client",
+        "transformers",
+        "mlx-engine",
+        "lmdeploy-engine",
+        "vllm-engine",
+        "vllm-async-engine",
+    ],
     model_name: str | None = None,
     server_url: str | None = None,
     server_headers: dict[str, str] | None = None,
     model=None,  # transformers model
     processor=None,  # transformers processor
+    lmdeploy_engine=None,  # lmdeploy.serve.vl_async_engine.VLAsyncEngine instance
     vllm_llm=None,  # vllm.LLM model
     vllm_async_llm=None,  # vllm.v1.engine.async_llm.AsyncLLM instance
     prompt: str = DEFAULT_USER_PROMPT,
@@ -210,6 +218,22 @@ def new_vlm_client(
             allow_truncated_content=allow_truncated_content,
             batch_size=batch_size,
             use_tqdm=use_tqdm,
+        )
+
+    elif backend == "lmdeploy-engine":
+        from .lmdeploy_engine_client import LmdeployEngineVlmClient
+
+        return LmdeployEngineVlmClient(
+            lmdeploy_engine=lmdeploy_engine,
+            prompt=prompt,
+            system_prompt=system_prompt,
+            sampling_params=sampling_params,
+            text_before_image=text_before_image,
+            allow_truncated_content=allow_truncated_content,
+            batch_size=batch_size,
+            max_concurrency=max_concurrency,
+            use_tqdm=use_tqdm,
+            debug=debug,
         )
 
     elif backend == "vllm-engine":

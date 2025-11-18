@@ -44,6 +44,10 @@ vllm = [
 mlx = [
   "mlx-vlm>=0.3.3,<0.4.0",
 ]
+lmdeploy = [
+  "lmdeploy>=0.10.2",
+  "qwen_vl_utils",
+]
 
 [tool.black]
 line-length = 128

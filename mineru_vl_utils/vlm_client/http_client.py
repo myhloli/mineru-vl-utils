@@ -67,7 +67,12 @@ class HttpVlmClient(VlmClient):
         if not server_url:
             server_url = _get_env("MINERU_VL_SERVER")
 
-        self.server_url = self._get_base_url(server_url)
+        if server_url.endswith("/"):  # keep server_url if it ends with '/'
+            server_url = server_url.rstrip("/")
+        else:  # use base_url if it does not end with '/' (backward compatibility)
+            server_url = self._get_base_url(server_url)
+
+        self.server_url = server_url
 
         if model_name:
             self._check_model_name(self.server_url, model_name)
