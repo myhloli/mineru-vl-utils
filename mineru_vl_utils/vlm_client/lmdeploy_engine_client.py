@@ -183,14 +183,14 @@ class LmdeployEngineVlmClient(VlmClient):
                 messages=lmdeploy_prompts,
                 gen_config=gen_config,
                 session_id=session_id,
-                stream_response=False,
                 **generate_kwargs,
         ):
             if output.response is not None:
                 response_parts.append(output.response)
 
-        if not response_parts:
+        if not response_parts:  # this should not happen
             raise ServerError("No output from the server.")
+
         return "".join(response_parts)
 
     async def aio_batch_predict(
