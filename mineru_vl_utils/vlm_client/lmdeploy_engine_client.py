@@ -178,19 +178,20 @@ class LmdeployEngineVlmClient(VlmClient):
         if priority is not None:
             generate_kwargs["priority"] = priority
 
-        final_output = ""
+        response_parts = []
         async for output in self.lmdeploy_engine.generate(
-            messages=lmdeploy_prompts,
-            gen_config=gen_config,
-            session_id=session_id,
-            **generate_kwargs,
+                messages=lmdeploy_prompts,
+                gen_config=gen_config,
+                session_id=session_id,
+                stream_response=False,
+                **generate_kwargs,
         ):
-            final_output += output.response
+            if output.response is not None:
+                response_parts.append(output.response)
+            else:  # this should not happen
+                raise ServerError("No output from the server.")
 
-        if not final_output:  # this should not happen
-            raise ServerError("No output from the server.")
-
-        return final_output
+        return "".join(response_parts)
 
     async def aio_batch_predict(
         self,
