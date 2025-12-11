@@ -162,11 +162,11 @@ class MinerUClientHelper:
         prompts: list[str] = []
         sampling_params: list[SamplingParams | None] = []
         indices: list[int] = []
-        skip_list = ["image", "list", "equation_block"]
+        skip_list = {"image", "list", "equation_block"}
         if not_extract_list:
             for not_extract_type in not_extract_list:
-                if not_extract_type in BLOCK_TYPES and not_extract_type not in skip_list:
-                    skip_list.append(not_extract_type)
+                if not_extract_type in BLOCK_TYPES:
+                    skip_list.add(not_extract_type)
         for idx, block in enumerate(blocks):
             if block.type in skip_list:
                 continue  # Skip blocks that should not be extracted.
