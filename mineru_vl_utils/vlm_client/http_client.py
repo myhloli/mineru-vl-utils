@@ -59,10 +59,7 @@ class HttpVlmClient(VlmClient):
             allow_truncated_content=allow_truncated_content,
         )
         self.max_concurrency = max_concurrency
-        self.http_timeout = http_timeout
         self.debug = debug
-        self.headers = server_headers
-        self.retry = Retry(total=max_retries, backoff_factor=retry_backoff_factor)
 
         if not server_url:
             server_url = _get_env("MINERU_VL_SERVER")
@@ -80,6 +77,28 @@ class HttpVlmClient(VlmClient):
         else:
             self.model_name = self._get_model_name(self.server_url)
 
+        self._client = httpx.Client(
+            headers=server_headers,
+            timeout=httpx.Timeout(connect=10.0, read=http_timeout, write=http_timeout, pool=None),
+            transport=RetryTransport(
+                retry=Retry(total=max_retries, backoff_factor=retry_backoff_factor),
+                transport=httpx.HTTPTransport(
+                    limits=httpx.Limits(max_connections=None, max_keepalive_connections=20),
+                ),
+            ),
+        )
+
+        self._aio_client = httpx.AsyncClient(
+            headers=server_headers,
+            timeout=httpx.Timeout(connect=10.0, read=http_timeout, write=http_timeout, pool=None),
+            transport=RetryTransport(
+                retry=Retry(total=max_retries, backoff_factor=retry_backoff_factor),
+                transport=httpx.AsyncHTTPTransport(
+                    limits=httpx.Limits(max_connections=None, max_keepalive_connections=20),
+                ),
+            ),
+        )
+
     @property
     def chat_url(self) -> str:
         return f"{self.server_url}/v1/chat/completions"
@@ -92,8 +111,7 @@ class HttpVlmClient(VlmClient):
 
     def _check_model_name(self, base_url: str, model_name: str):
         try:
-            with httpx.Client(transport=RetryTransport(retry=self.retry)) as client:
-                response = client.get(f"{base_url}/v1/models", headers=self.headers, timeout=self.http_timeout)
+            response = self._client.get(f"{base_url}/v1/models")
         except httpx.ConnectError:
             raise ServerError(f"Failed to connect to server {base_url}. Please check if the server is running.")
         if response.status_code != 200:
@@ -110,8 +128,7 @@ class HttpVlmClient(VlmClient):
 
     def _get_model_name(self, base_url: str) -> str:
         try:
-            with httpx.Client(transport=RetryTransport(retry=self.retry)) as client:
-                response = client.get(f"{base_url}/v1/models", headers=self.headers, timeout=self.http_timeout)
+            response = self._client.get(f"{base_url}/v1/models")
         except httpx.ConnectError:
             raise ServerError(f"Failed to connect to server {base_url}. Please check if the server is running.")
         if response.status_code != 200:
@@ -265,13 +282,7 @@ class HttpVlmClient(VlmClient):
                 request_text = request_text[:2048] + "...(truncated)..." + request_text[-2048:]
             print(f"Request body: {request_text}")
 
-        with httpx.Client(transport=RetryTransport(retry=self.retry)) as client:
-            response = client.post(
-                self.chat_url,
-                json=request_body,
-                headers=self.headers,
-                timeout=self.http_timeout,
-            )
+        response = self._client.post(self.chat_url, json=request_body)
 
         if self.debug:
             print(f"Response status code: {response.status_code}")
@@ -334,27 +345,20 @@ class HttpVlmClient(VlmClient):
                 request_text = request_text[:2048] + "...(truncated)..." + request_text[-2048:]
             print(f"Request body: {request_text}")
 
-        with httpx.Client(transport=RetryTransport(retry=self.retry)) as client:
-            with client.stream(
-                "POST",
-                self.chat_url,
-                json=request_body,
-                headers=self.headers,
-                timeout=self.http_timeout,
-            ) as response:
-                for chunk in response.iter_lines():
-                    chunk = chunk.strip()
-                    if not chunk.startswith("data:"):
-                        continue
-                    chunk = chunk[5:].lstrip()
-                    if chunk == "[DONE]":
-                        break
-                    response_data = json.loads(chunk)
-                    choices = response_data.get("choices") or []
-                    choice = choices[0] if choices else {}
-                    delta = choice.get("delta") or {}
-                    if "content" in delta:
-                        yield delta["content"]
+        with self._client.stream("POST", self.chat_url, json=request_body) as response:
+            for chunk in response.iter_lines():
+                chunk = chunk.strip()
+                if not chunk.startswith("data:"):
+                    continue
+                chunk = chunk[5:].lstrip()
+                if chunk == "[DONE]":
+                    break
+                response_data = json.loads(chunk)
+                choices = response_data.get("choices") or []
+                choice = choices[0] if choices else {}
+                delta = choice.get("delta") or {}
+                if "content" in delta:
+                    yield delta["content"]
 
     def stream_test(
         self,
@@ -382,7 +386,6 @@ class HttpVlmClient(VlmClient):
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
-        async_client: httpx.AsyncClient | None = None,
     ) -> str:
         image_format = None
         if isinstance(image, str):
@@ -406,13 +409,8 @@ class HttpVlmClient(VlmClient):
                 request_text = request_text[:2048] + "...(truncated)..." + request_text[-2048:]
             print(f"Request body: {request_text}")
 
-        if async_client is None:
-            async with httpx.AsyncClient(transport=RetryTransport(retry=self.retry), timeout=self.http_timeout) as client:
-                response = await client.post(self.chat_url, json=request_body, headers=self.headers)
-                response_data = self.get_response_data(response)
-        else:
-            response = await async_client.post(self.chat_url, json=request_body, headers=self.headers)
-            response_data = self.get_response_data(response)
+        response = await self._aio_client.post(self.chat_url, json=request_body)
+        response_data = self.get_response_data(response)
 
         if self.debug:
             print(f"Response status code: {response.status_code}")
@@ -449,7 +447,6 @@ class HttpVlmClient(VlmClient):
             prompt: str,
             sampling_params: SamplingParams | None,
             priority: int | None,
-            async_client: httpx.AsyncClient,
         ):
             async with semaphore:
                 return await self.aio_predict(
@@ -457,28 +454,21 @@ class HttpVlmClient(VlmClient):
                     prompt=prompt,
                     sampling_params=sampling_params,
                     priority=priority,
-                    async_client=async_client,
                 )
 
-        async with httpx.AsyncClient(
-            transport=RetryTransport(retry=self.retry),
-            timeout=self.http_timeout,
-            headers=self.headers,
-            limits=httpx.Limits(max_connections=None, max_keepalive_connections=20),
-        ) as client:
-            return await gather_tasks(
-                tasks=[
-                    predict_with_semaphore(*args, client)
-                    for args in zip(
-                        images,
-                        prompts,
-                        sampling_params,
-                        priority,
-                    )
-                ],
-                use_tqdm=use_tqdm,
-                tqdm_desc=tqdm_desc,
-            )
+        return await gather_tasks(
+            tasks=[
+                predict_with_semaphore(*args)
+                for args in zip(
+                    images,
+                    prompts,
+                    sampling_params,
+                    priority,
+                )
+            ],
+            use_tqdm=use_tqdm,
+            tqdm_desc=tqdm_desc,
+        )
 
     async def aio_batch_predict_as_iter(
         self,
@@ -508,7 +498,6 @@ class HttpVlmClient(VlmClient):
             prompt: str,
             sampling_params: SamplingParams | None,
             priority: int | None,
-            async_client: httpx.AsyncClient,
         ):
             async with semaphore:
                 output = await self.aio_predict(
@@ -516,28 +505,21 @@ class HttpVlmClient(VlmClient):
                     prompt=prompt,
                     sampling_params=sampling_params,
                     priority=priority,
-                    async_client=async_client,
                 )
                 return (idx, output)
 
-        async with httpx.AsyncClient(
-            transport=RetryTransport(retry=self.retry),
-            timeout=self.http_timeout,
-            headers=self.headers,
-            limits=httpx.Limits(max_connections=None, max_keepalive_connections=20),
-        ) as client:
-            pending: set[asyncio.Task[tuple[int, str]]] = set()
+        pending: set[asyncio.Task[tuple[int, str]]] = set()
 
-            for idx, args in enumerate(zip(images, prompts, sampling_params, priority)):
-                pending.add(asyncio.create_task(predict_with_semaphore(idx, *args, client)))
+        for idx, args in enumerate(zip(images, prompts, sampling_params, priority)):
+            pending.add(asyncio.create_task(predict_with_semaphore(idx, *args)))
 
-            while len(pending) > 0:
-                done, pending = await asyncio.wait(
-                    pending,
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-                for task in done:
-                    yield task.result()
+        while len(pending) > 0:
+            done, pending = await asyncio.wait(
+                pending,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in done:
+                yield task.result()
 
     # async def aio_stream_predict(
     #     self,
