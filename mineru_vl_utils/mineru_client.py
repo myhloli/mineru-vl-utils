@@ -169,7 +169,7 @@ class MinerUClientHelper:
                     skip_list.append(not_extract_type)
         for idx, block in enumerate(blocks):
             if block.type in skip_list:
-                continue  # Skip image blocks.
+                continue  # Skip blocks that should not be extracted.
             x1, y1, x2, y2 = block.bbox
             scaled_bbox = (x1 * width, y1 * height, x2 * width, y2 * height)
             block_image = image.crop(scaled_bbox)
