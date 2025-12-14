@@ -187,13 +187,17 @@ class MinerUClientHelper:
         return block_images, prompts, sampling_params, indices
 
     def post_process(self, blocks: list[ContentBlock]) -> list[ContentBlock]:
-        return post_process(
-            blocks,
-            handle_equation_block=self.handle_equation_block,
-            abandon_list=self.abandon_list,
-            abandon_paratext=self.abandon_paratext,
-            debug=self.debug,
-        )
+        try:
+            return post_process(
+                blocks,
+                handle_equation_block=self.handle_equation_block,
+                abandon_list=self.abandon_list,
+                abandon_paratext=self.abandon_paratext,
+                debug=self.debug,
+            )
+        except Exception as e:
+            print(f"Warning: post-processing failed with error: {e}")
+            return blocks
 
     def batch_prepare_for_layout(
         self,

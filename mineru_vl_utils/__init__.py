@@ -3,7 +3,6 @@ from typing import TYPE_CHECKING
 
 from mineru_vl_utils.version import __version__
 
-
 __lazy_attrs__ = {
     "MinerUClient": (".mineru_client", "MinerUClient"),
     "MinerUSamplingParams": (".mineru_client", "MinerUSamplingParams"),
