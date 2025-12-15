@@ -71,12 +71,6 @@ class HttpVlmClient(VlmClient):
 
         self.server_url = server_url
 
-        if model_name:
-            self._check_model_name(self.server_url, model_name)
-            self.model_name = model_name
-        else:
-            self.model_name = self._get_model_name(self.server_url)
-
         self._client = httpx.Client(
             headers=server_headers,
             timeout=httpx.Timeout(connect=10.0, read=http_timeout, write=http_timeout, pool=None),
@@ -98,6 +92,12 @@ class HttpVlmClient(VlmClient):
                 ),
             ),
         )
+
+        if model_name:
+            self._check_model_name(self.server_url, model_name)
+            self.model_name = model_name
+        else:
+            self.model_name = self._get_model_name(self.server_url)
 
     @property
     def chat_url(self) -> str:
