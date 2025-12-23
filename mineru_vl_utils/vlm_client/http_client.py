@@ -70,28 +70,14 @@ class HttpVlmClient(VlmClient):
             server_url = self._get_base_url(server_url)
 
         self.server_url = server_url
+        self.server_headers = server_headers
+        self.http_timeout = http_timeout
+        self.max_retries = max_retries
+        self.retry_backoff_factor = retry_backoff_factor
 
-        self._client = httpx.Client(
-            headers=server_headers,
-            timeout=httpx.Timeout(connect=10.0, read=http_timeout, write=http_timeout, pool=None),
-            transport=RetryTransport(
-                retry=Retry(total=max_retries, backoff_factor=retry_backoff_factor),
-                transport=httpx.HTTPTransport(
-                    limits=httpx.Limits(max_connections=None, max_keepalive_connections=20),
-                ),
-            ),
-        )
-
-        self._aio_client = httpx.AsyncClient(
-            headers=server_headers,
-            timeout=httpx.Timeout(connect=10.0, read=http_timeout, write=http_timeout, pool=None),
-            transport=RetryTransport(
-                retry=Retry(total=max_retries, backoff_factor=retry_backoff_factor),
-                transport=httpx.AsyncHTTPTransport(
-                    limits=httpx.Limits(max_connections=None, max_keepalive_connections=20),
-                ),
-            ),
-        )
+        self._client = self._new_client()
+        self._aio_client_sem = asyncio.Semaphore(1)
+        self._aio_client_cache: dict[asyncio.AbstractEventLoop, httpx.AsyncClient] = {}
 
         if model_name:
             self._check_model_name(self.server_url, model_name)
@@ -102,6 +88,44 @@ class HttpVlmClient(VlmClient):
     @property
     def chat_url(self) -> str:
         return f"{self.server_url}/v1/chat/completions"
+
+    def _new_client(self) -> httpx.Client:
+        return httpx.Client(
+            headers=self.server_headers,
+            timeout=httpx.Timeout(connect=10.0, read=self.http_timeout, write=self.http_timeout, pool=None),
+            transport=RetryTransport(
+                retry=Retry(total=self.max_retries, backoff_factor=self.retry_backoff_factor),
+                transport=httpx.HTTPTransport(
+                    limits=httpx.Limits(max_connections=None, max_keepalive_connections=20),
+                ),
+            ),
+        )
+
+    async def _new_aio_client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            headers=self.server_headers,
+            timeout=httpx.Timeout(connect=10.0, read=self.http_timeout, write=self.http_timeout, pool=None),
+            transport=RetryTransport(
+                retry=Retry(total=self.max_retries, backoff_factor=self.retry_backoff_factor),
+                transport=httpx.AsyncHTTPTransport(
+                    limits=httpx.Limits(max_connections=None, max_keepalive_connections=20),
+                ),
+            ),
+        )
+
+    async def _aio_client(self) -> httpx.AsyncClient:
+        loop = asyncio.get_running_loop()
+        aio_client = self._aio_client_cache.get(loop)
+        if aio_client is not None:
+            return aio_client
+        async with self._aio_client_sem:
+            aio_client = self._aio_client_cache.get(loop)
+            if aio_client is not None:
+                return aio_client
+            aio_client = await self._new_aio_client()
+            self._aio_client_cache.clear()
+            self._aio_client_cache[loop] = aio_client
+            return aio_client
 
     def _get_base_url(self, server_url: str) -> str:
         matched = re.match(r"^(https?://[^/]+)", server_url)
@@ -409,7 +433,8 @@ class HttpVlmClient(VlmClient):
                 request_text = request_text[:2048] + "...(truncated)..." + request_text[-2048:]
             print(f"Request body: {request_text}")
 
-        response = await self._aio_client.post(self.chat_url, json=request_body)
+        client = await self._aio_client()
+        response = await client.post(self.chat_url, json=request_body)
         response_data = self.get_response_data(response)
 
         if self.debug:
