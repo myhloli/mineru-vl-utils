@@ -37,13 +37,7 @@ def _add_equation_brackets(content: str) -> str:
     return content
 
 
-def post_process(
-    blocks: list[ContentBlock],
-    handle_equation_block: bool,
-    abandon_list: bool,
-    abandon_paratext: bool,
-    debug: bool = False,
-) -> list[ContentBlock]:
+def simple_process(blocks: list[ContentBlock]) -> list[ContentBlock]:
     for block in blocks:
         if block.type == "table" and block.content:
             try:
@@ -51,6 +45,23 @@ def post_process(
             except Exception as e:
                 print("Warning: Failed to convert OTSL to HTML: ", e)
                 print("Content: ", block.content)
+    return blocks
+
+
+def post_process(
+    blocks: list[ContentBlock],
+    simple_post_process: bool,
+    handle_equation_block: bool,
+    abandon_list: bool,
+    abandon_paratext: bool,
+    debug: bool = False,
+) -> list[ContentBlock]:
+    blocks = simple_process(blocks)
+
+    if simple_post_process:
+        return blocks
+
+    for block in blocks:
         if block.type == "equation" and block.content:
             try:
                 block.content = _process_equation(block.content, debug=debug)
