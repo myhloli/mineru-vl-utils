@@ -88,6 +88,7 @@ class MinerUClientHelper:
         layout_image_size: tuple[int, int],
         min_image_edge: int,
         max_image_edge_ratio: float,
+        simple_post_process: bool,
         handle_equation_block: bool,
         abandon_list: bool,
         abandon_paratext: bool,
@@ -99,6 +100,7 @@ class MinerUClientHelper:
         self.layout_image_size = layout_image_size
         self.min_image_edge = min_image_edge
         self.max_image_edge_ratio = max_image_edge_ratio
+        self.simple_post_process = simple_post_process
         self.handle_equation_block = handle_equation_block
         self.abandon_list = abandon_list
         self.abandon_paratext = abandon_paratext
@@ -190,6 +192,7 @@ class MinerUClientHelper:
         try:
             return post_process(
                 blocks,
+                simple_post_process=self.simple_post_process,
                 handle_equation_block=self.handle_equation_block,
                 abandon_list=self.abandon_list,
                 abandon_paratext=self.abandon_paratext,
@@ -298,6 +301,7 @@ class MinerUClient:
         layout_image_size: tuple[int, int] = (1036, 1036),
         min_image_edge: int = 28,
         max_image_edge_ratio: float = 50,
+        simple_post_process: bool = False,
         handle_equation_block: bool = True,
         abandon_list: bool = False,
         abandon_paratext: bool = False,
@@ -337,6 +341,7 @@ class MinerUClient:
                     )
                 if processor is None:
                     processor = AutoProcessor.from_pretrained(model_path, use_fast=True)
+
         elif backend == "mlx-engine":
             if model is None or processor is None:
                 if not model_path:
@@ -414,6 +419,7 @@ class MinerUClient:
             layout_image_size=layout_image_size,
             min_image_edge=min_image_edge,
             max_image_edge_ratio=max_image_edge_ratio,
+            simple_post_process=simple_post_process,
             handle_equation_block=handle_equation_block,
             abandon_list=abandon_list,
             abandon_paratext=abandon_paratext,
