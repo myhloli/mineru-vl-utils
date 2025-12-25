@@ -175,6 +175,9 @@ class MinerUClientHelper:
             x1, y1, x2, y2 = block.bbox
             scaled_bbox = (x1 * width, y1 * height, x2 * width, y2 * height)
             block_image = image.crop(scaled_bbox)
+            if block_image.width < 1 or block_image.height < 1:
+                print(f"Warning: cropped block image has invalid size {block_image.size}")
+                continue
             if block.angle in [90, 180, 270]:
                 block_image = block_image.rotate(block.angle, expand=True)
             block_image = self.resize_by_need(block_image)
