@@ -61,6 +61,18 @@ class HttpVlmClient(VlmClient):
         self.max_concurrency = max_concurrency
         self.debug = debug
 
+        # Work on a local copy of server_headers to avoid mutating the caller's dict.
+        headers = dict(server_headers) if server_headers is not None else None
+
+        api_key = os.getenv("MINERU_VL_API_KEY")
+        if api_key:
+            if headers is None:
+                headers = {}
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        self.headers = headers
+        self.retry = Retry(total=max_retries, backoff_factor=retry_backoff_factor)
+
         if not server_url:
             server_url = _get_env("MINERU_VL_SERVER")
 
@@ -79,6 +91,7 @@ class HttpVlmClient(VlmClient):
         self._aio_client_sem = asyncio.Semaphore(1)
         self._aio_client_cache: dict[asyncio.AbstractEventLoop, httpx.AsyncClient] = {}
 
+        model_name = model_name or os.getenv("MINERU_VL_MODEL_NAME")
         if model_name:
             self._check_model_name(self.server_url, model_name)
             self.model_name = model_name
@@ -164,7 +177,8 @@ class HttpVlmClient(VlmClient):
             raise RequestError(f"No models found in response from {base_url}. Response body: {response.text}")
         if len(models) != 1:
             raise RequestError(
-                f"Expected exactly one model from {base_url}, but got {len(models)}. Please specify the model name."
+                f"Expected exactly one model from {base_url}, but got {len(models)}. Please specify the model name"
+                f" or set the `MINERU_VL_MODEL_NAME` environment variable."
             )
         model_name = models[0].get("id", "")
         if not model_name:
