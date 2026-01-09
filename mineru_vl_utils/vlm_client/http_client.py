@@ -275,6 +275,9 @@ class HttpVlmClient(VlmClient):
         content = message["content"]
         if not (content is None or isinstance(content, str)):
             raise ServerError(f"Unexpected content type: {type(content)}.")
+        end_token = "<|im_end|>"
+        if isinstance(content, str) and content.endswith(end_token):
+            content = content[:-len(end_token)]
         return content or ""
 
     def predict(
