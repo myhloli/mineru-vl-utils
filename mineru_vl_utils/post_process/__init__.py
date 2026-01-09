@@ -1,11 +1,11 @@
-from .equation_unbalanced_braces import try_fix_unbalanced_braces
 from ..structs import ContentBlock
+from .equation_big import try_fix_equation_big
 from .equation_block import do_handle_equation_block
 from .equation_double_subscript import try_fix_equation_double_subscript
 from .equation_fix_eqqcolon import try_fix_equation_eqqcolon
-from .equation_big import try_fix_equation_big
-from .equation_leq import try_fix_equation_leq
 from .equation_left_right import try_match_equation_left_right
+from .equation_leq import try_fix_equation_leq
+from .equation_unbalanced_braces import try_fix_unbalanced_braces
 from .otsl2html import convert_otsl_to_html
 
 PARATEXT_TYPES = {
@@ -37,18 +37,37 @@ def _add_equation_brackets(content: str) -> str:
     return content
 
 
+def simple_process(blocks: list[ContentBlock]) -> list[ContentBlock]:
+    for block in blocks:
+        if block.type == "table" and block.content:
+            try:
+                block.content = convert_otsl_to_html(block.content)
+            except Exception as e:
+                print("Warning: Failed to convert OTSL to HTML: ", e)
+                print("Content: ", block.content)
+    return blocks
+
+
 def post_process(
     blocks: list[ContentBlock],
+    simple_post_process: bool,
     handle_equation_block: bool,
     abandon_list: bool,
     abandon_paratext: bool,
     debug: bool = False,
 ) -> list[ContentBlock]:
+    blocks = simple_process(blocks)
+
+    if simple_post_process:
+        return blocks
+
     for block in blocks:
-        if block.type == "table" and block.content:
-            block.content = convert_otsl_to_html(block.content)
         if block.type == "equation" and block.content:
-            block.content = _process_equation(block.content, debug=debug)
+            try:
+                block.content = _process_equation(block.content, debug=debug)
+            except Exception as e:
+                print("Warning: Failed to process equation: ", e)
+                print("Content: ", block.content)
 
     if handle_equation_block:
         blocks = do_handle_equation_block(blocks, debug=debug)
