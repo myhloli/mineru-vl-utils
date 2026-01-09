@@ -72,9 +72,11 @@ class HttpVlmClient(VlmClient):
 
         api_key = os.getenv("MINERU_VL_API_KEY", "").strip()
         if api_key:
-            server_headers = dict(server_headers) if server_headers else {}
-            server_headers["Authorization"] = f"Bearer {api_key}"
-        self.server_headers = server_headers
+            headers = dict(server_headers) if server_headers else {}
+            headers["Authorization"] = f"Bearer {api_key}"
+            self.server_headers = headers
+        else:
+            self.server_headers = server_headers
 
         self.http_timeout = http_timeout
         self.max_retries = max_retries
