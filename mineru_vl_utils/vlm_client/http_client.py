@@ -62,13 +62,16 @@ class HttpVlmClient(VlmClient):
         self.http_timeout = http_timeout
         self.debug = debug
 
+        # Work on a local copy of server_headers to avoid mutating the caller's dict.
+        headers = dict(server_headers) if server_headers is not None else None
+
         api_key = os.getenv("MINERU_VL_API_KEY")
         if api_key:
-            if server_headers is None:
-                server_headers = {}
-            server_headers["Authorization"] = f"Bearer {api_key}"
+            if headers is None:
+                headers = {}
+            headers["Authorization"] = f"Bearer {api_key}"
 
-        self.headers = server_headers
+        self.headers = headers
         self.retry = Retry(total=max_retries, backoff_factor=retry_backoff_factor)
 
         if not server_url:
