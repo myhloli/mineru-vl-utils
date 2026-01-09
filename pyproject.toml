@@ -40,13 +40,13 @@ transformers = [
     "torchvision",
 ]
 vllm = [
-    "vllm>=0.10.0,<=0.11.0",
+    "vllm>=0.10.1.1,<0.12",
 ]
 mlx = [
     "mlx-vlm>=0.3.3,<0.4.0",
 ]
 lmdeploy = [
-    "lmdeploy>=0.10.2",
+    "lmdeploy>=0.10.2,<0.12",
     "qwen_vl_utils",
 ]
 
