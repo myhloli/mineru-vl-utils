@@ -119,7 +119,7 @@ class MinerUClientHelper:
             image = new_image
         if min(image.size) < self.min_image_edge:
             scale = self.min_image_edge / min(image.size)
-            new_w, new_h = round(image.width * scale), round(image.height * scale)
+            new_w, new_h = math.ceil(image.width * scale), math.ceil(image.height * scale)
             image = image.resize((new_w, new_h), Image.Resampling.BICUBIC)
         return image
 
@@ -313,6 +313,10 @@ class MinerUClient:
         executor: Executor | None = None,
         batch_size: int = 0,  # for transformers and vllm-engine
         http_timeout: int = 600,  # for http-client backend only
+        connect_timeout: int = 10,  # for http-client backend only
+        max_connections: int | None = None,  # for http-client backend only
+        max_keepalive_connections: int | None = 20,  # for http-client backend only
+        keepalive_expiry: float | None = 5,  # for http-client backend only
         use_tqdm: bool = True,
         debug: bool = False,
         max_retries: int = 3,  # for http-client backend only
@@ -410,6 +414,10 @@ class MinerUClient:
             max_concurrency=max_concurrency,
             batch_size=batch_size,
             http_timeout=http_timeout,
+            connect_timeout=connect_timeout,
+            max_connections=max_connections,
+            max_keepalive_connections=max_keepalive_connections,
+            keepalive_expiry=keepalive_expiry,
             use_tqdm=use_tqdm,
             debug=debug,
             max_retries=max_retries,
