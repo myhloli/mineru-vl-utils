@@ -6,8 +6,8 @@ from typing import AsyncIterable, Iterable, Sequence
 
 import httpx
 from httpx_retries import Retry, RetryTransport
-from PIL import Image
 from loguru import logger
+from PIL import Image
 
 from .base_client import (
     DEFAULT_SYSTEM_PROMPT,
@@ -48,6 +48,10 @@ class HttpVlmClient(VlmClient):
         allow_truncated_content: bool = False,
         max_concurrency: int = 100,
         http_timeout: int = 600,
+        connect_timeout: int = 10,
+        max_connections: int | None = None,
+        max_keepalive_connections: int | None = 20,
+        keepalive_expiry: float | None = 5,
         debug: bool = False,
         max_retries: int = 3,
         retry_backoff_factor: float = 0.5,
@@ -81,6 +85,10 @@ class HttpVlmClient(VlmClient):
             self.server_headers = server_headers
 
         self.http_timeout = http_timeout
+        self.connect_timeout = connect_timeout
+        self.max_connections = max_connections
+        self.max_keepalive_connections = max_keepalive_connections
+        self.keepalive_expiry = keepalive_expiry
         self.max_retries = max_retries
         self.retry_backoff_factor = retry_backoff_factor
 
@@ -102,11 +110,23 @@ class HttpVlmClient(VlmClient):
     def _new_client(self) -> httpx.Client:
         return httpx.Client(
             headers=self.server_headers,
-            timeout=httpx.Timeout(connect=10.0, read=self.http_timeout, write=self.http_timeout, pool=None),
+            timeout=httpx.Timeout(
+                connect=self.connect_timeout,
+                read=self.http_timeout,
+                write=self.http_timeout,
+                pool=None,
+            ),
             transport=RetryTransport(
-                retry=Retry(total=self.max_retries, backoff_factor=self.retry_backoff_factor),
+                retry=Retry(
+                    total=self.max_retries,
+                    backoff_factor=self.retry_backoff_factor,
+                ),
                 transport=httpx.HTTPTransport(
-                    limits=httpx.Limits(max_connections=None, max_keepalive_connections=20),
+                    limits=httpx.Limits(
+                        max_connections=self.max_connections,
+                        max_keepalive_connections=self.max_keepalive_connections,
+                        keepalive_expiry=self.keepalive_expiry,
+                    ),
                 ),
             ),
         )
@@ -114,11 +134,23 @@ class HttpVlmClient(VlmClient):
     async def _new_aio_client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(
             headers=self.server_headers,
-            timeout=httpx.Timeout(connect=10.0, read=self.http_timeout, write=self.http_timeout, pool=None),
+            timeout=httpx.Timeout(
+                connect=self.connect_timeout,
+                read=self.http_timeout,
+                write=self.http_timeout,
+                pool=None,
+            ),
             transport=RetryTransport(
-                retry=Retry(total=self.max_retries, backoff_factor=self.retry_backoff_factor),
+                retry=Retry(
+                    total=self.max_retries,
+                    backoff_factor=self.retry_backoff_factor,
+                ),
                 transport=httpx.AsyncHTTPTransport(
-                    limits=httpx.Limits(max_connections=None, max_keepalive_connections=20),
+                    limits=httpx.Limits(
+                        max_connections=self.max_connections,
+                        max_keepalive_connections=self.max_keepalive_connections,
+                        keepalive_expiry=self.keepalive_expiry,
+                    ),
                 ),
             ),
         )
@@ -290,7 +322,7 @@ class HttpVlmClient(VlmClient):
         # Set MINERU_VLM_END_TOKEN to override or disable stripping (e.g., set to an empty string).
         end_token = os.getenv("MINERU_VLM_END_TOKEN", "<|im_end|>")
         if end_token and isinstance(content, str) and content.endswith(end_token):
-            content = content[:-len(end_token)]
+            content = content[: -len(end_token)]
         return content or ""
 
     def predict(
