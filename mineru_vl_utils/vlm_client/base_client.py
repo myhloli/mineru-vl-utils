@@ -165,12 +165,15 @@ def new_vlm_client(
     max_concurrency: int = 100,
     batch_size: int = 0,
     http_timeout: int = 600,
+    connect_timeout: int = 10,
+    max_connections: int | None = None,
+    max_keepalive_connections: int | None = 20,
+    keepalive_expiry: float | None = 5,
     use_tqdm: bool = True,
     debug: bool = False,
     max_retries: int = 3,
     retry_backoff_factor: float = 0.5,
 ) -> VlmClient:
-
     if backend == "http-client":
         from .http_client import HttpVlmClient
 
@@ -185,6 +188,10 @@ def new_vlm_client(
             allow_truncated_content=allow_truncated_content,
             max_concurrency=max_concurrency,
             http_timeout=http_timeout,
+            connect_timeout=connect_timeout,
+            max_connections=max_connections,
+            max_keepalive_connections=max_keepalive_connections,
+            keepalive_expiry=keepalive_expiry,
             debug=debug,
             max_retries=max_retries,
             retry_backoff_factor=retry_backoff_factor,
