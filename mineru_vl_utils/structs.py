@@ -5,58 +5,75 @@ class BlockType:
     TEXT = "text"  # 文本
     TITLE = "title"  # 段落标题
     TABLE = "table"  # 表格
-    IMAGE = "image"  # 图像
+    EQUATION = "equation"  # 公式(独立公式)
     CODE = "code"  # 代码
     ALGORITHM = "algorithm"  # 算法/伪代码
-    HEADER = "header"  # 页眉
-    FOOTER = "footer"  # 页脚
-    PAGE_NUMBER = "page_number"  # 页码
-    PAGE_FOOTNOTE = "page_footnote"  # 脚注
     ASIDE_TEXT = "aside_text"  # 侧栏文本(装订线等)
-    EQUATION = "equation"  # 公式(独立公式)
-    EQUATION_BLOCK = "equation_block"  # 公式块(多行公式)
     REF_TEXT = "ref_text"  # 参考文献(一条)
-    LIST = "list"  # 列表块(无序/有序列表)
     PHONETIC = "phonetic"  # 注音符号
-
+    LIST_ITEM = "list_item"  # 列表项(无序/有序列表)
     # captions
     TABLE_CAPTION = "table_caption"  # 表格标题
     IMAGE_CAPTION = "image_caption"  # 图像标题
     CODE_CAPTION = "code_caption"  # 代码标题
     TABLE_FOOTNOTE = "table_footnote"  # 表格脚注
     IMAGE_FOOTNOTE = "image_footnote"  # 图像脚注
-
+    # paratexts
+    HEADER = "header"  # 页眉
+    FOOTER = "footer"  # 页脚
+    PAGE_NUMBER = "page_number"  # 页码
+    PAGE_FOOTNOTE = "page_footnote"  # 脚注
+    # images
+    IMAGE = "image"  # 图像
+    CHART = "chart"
+    # containers
+    LIST = "list"  # 列表块(无序/有序列表)
+    IMAGE_BLOCK = "image_block"  # 图像块(多图)
+    EQUATION_BLOCK = "equation_block"  # 公式块(多行公式)
+    # unknown
     UNKNOWN = "unknown"  # 未知块
 
 
-BLOCK_TYPES = set(
-    [
-        BlockType.TEXT,
-        BlockType.TITLE,
-        BlockType.TABLE,
-        BlockType.IMAGE,
-        BlockType.CODE,
-        BlockType.HEADER,
-        BlockType.FOOTER,
-        BlockType.PAGE_NUMBER,
-        BlockType.PAGE_FOOTNOTE,
-        BlockType.ASIDE_TEXT,
-        BlockType.EQUATION,
-        BlockType.EQUATION_BLOCK,
-        BlockType.REF_TEXT,
-        BlockType.TABLE_CAPTION,
-        BlockType.IMAGE_CAPTION,
-        BlockType.TABLE_FOOTNOTE,
-        BlockType.IMAGE_FOOTNOTE,
-        BlockType.ALGORITHM,
-        BlockType.CODE_CAPTION,
-        BlockType.LIST,
-        BlockType.PHONETIC,
-        BlockType.UNKNOWN,
-    ]
-)
+BLOCK_TYPES = {
+    BlockType.TEXT,
+    BlockType.TITLE,
+    BlockType.TABLE,
+    BlockType.EQUATION,
+    BlockType.CODE,
+    BlockType.ALGORITHM,
+    BlockType.ASIDE_TEXT,
+    BlockType.REF_TEXT,
+    BlockType.PHONETIC,
+    BlockType.LIST_ITEM,
+    # captions
+    BlockType.TABLE_CAPTION,
+    BlockType.IMAGE_CAPTION,
+    BlockType.CODE_CAPTION,
+    BlockType.TABLE_FOOTNOTE,
+    BlockType.IMAGE_FOOTNOTE,
+    # paratexts
+    BlockType.HEADER,
+    BlockType.FOOTER,
+    BlockType.PAGE_NUMBER,
+    BlockType.PAGE_FOOTNOTE,
+    # images
+    BlockType.IMAGE,
+    BlockType.CHART,
+    # containers
+    BlockType.LIST,
+    BlockType.IMAGE_BLOCK,
+    BlockType.EQUATION_BLOCK,
+    # unknown
+    BlockType.UNKNOWN,
+}
 
-ANGLE_OPTIONS = set([None, 0, 90, 180, 270])
+ANGLE_OPTIONS = {
+    None,
+    0,
+    90,
+    180,
+    270,
+}
 
 
 class ContentBlock(dict):
