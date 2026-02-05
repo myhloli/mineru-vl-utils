@@ -1,10 +1,12 @@
 import asyncio
 import math
+import os
 import re
 from concurrent.futures import Executor
 from typing import Literal, Sequence
 
 from PIL import Image
+from loguru import logger
 
 from .post_process import post_process
 from .structs import BLOCK_TYPES, ContentBlock
@@ -322,6 +324,15 @@ class MinerUClient:
         max_retries: int = 3,  # for http-client backend only
         retry_backoff_factor: float = 0.5,  # for http-client backend only
     ) -> None:
+        env_debug_value = os.getenv('MINERU_VL_DEBUG_ENABLE', '')
+        if env_debug_value:
+            if env_debug_value.lower() in ['true', '1', 'yes']:
+                debug = True
+            elif env_debug_value.lower() in ['false', '0', 'no']:
+                debug = False
+            else:
+                logger.warning(f'unknown MINERU_VL_DEBUG_ENABLE config: {env_debug_value}, pass')
+
         if backend == "transformers":
             if model is None or processor is None:
                 if not model_path:

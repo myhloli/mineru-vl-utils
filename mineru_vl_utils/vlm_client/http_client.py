@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import re
+from enum import Enum
 from typing import AsyncIterable, Iterable, Sequence
 
 import httpx
@@ -32,6 +33,16 @@ def _get_env(key: str, default: str | None = None) -> str:
     if default is not None:
         return default
     raise ValueError(f"Environment variable {key} is not set.")
+
+
+class HTTPMethod(str, Enum):
+    HEAD = "HEAD"
+    GET = "GET"
+    PUT = "PUT"
+    DELETE = "DELETE"
+    OPTIONS = "OPTIONS"
+    TRACE = "TRACE"
+    POST = "POST"
 
 
 class HttpVlmClient(VlmClient):
@@ -119,6 +130,7 @@ class HttpVlmClient(VlmClient):
                 retry=Retry(
                     total=self.max_retries,
                     backoff_factor=self.retry_backoff_factor,
+                    allowed_methods=list(HTTPMethod),
                 ),
                 transport=httpx.HTTPTransport(
                     limits=httpx.Limits(
@@ -143,6 +155,7 @@ class HttpVlmClient(VlmClient):
                 retry=Retry(
                     total=self.max_retries,
                     backoff_factor=self.retry_backoff_factor,
+                    allowed_methods=list(HTTPMethod),
                 ),
                 transport=httpx.AsyncHTTPTransport(
                     limits=httpx.Limits(
