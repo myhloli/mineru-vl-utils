@@ -1,28 +1,32 @@
 # Copyright (c) Opendatalab. All rights reserved.
 import asyncio
 from typing import Sequence
-from PIL import Image
+
 from tqdm import tqdm
 
-from .base_client import (VlmClient,
-                          SamplingParams,
-                          DEFAULT_USER_PROMPT,
-                          DEFAULT_SYSTEM_PROMPT)
+from .base_client import (
+    DEFAULT_SYSTEM_PROMPT,
+    DEFAULT_USER_PROMPT,
+    ImageType,
+    SamplingParams,
+    SingleImageType,
+    UnsupportedError,
+    VlmClient,
+)
 
 
 class MlxVlmClient(VlmClient):
-
     def __init__(
-            self,
-            model,  # MLX model object
-            processor,  # MLX processor object
-            prompt: str = DEFAULT_USER_PROMPT,
-            system_prompt: str = DEFAULT_SYSTEM_PROMPT,
-            sampling_params: SamplingParams | None = None,
-            text_before_image: bool = False,
-            allow_truncated_content: bool = False,
-            batch_size: int = 1,
-            use_tqdm: bool = True,
+        self,
+        model,  # MLX model object
+        processor,  # MLX processor object
+        prompt: str = DEFAULT_USER_PROMPT,
+        system_prompt: str = DEFAULT_SYSTEM_PROMPT,
+        sampling_params: SamplingParams | None = None,
+        text_before_image: bool = False,
+        allow_truncated_content: bool = False,
+        batch_size: int = 1,
+        use_tqdm: bool = True,
     ):
         super().__init__(
             prompt=prompt,
@@ -38,6 +42,7 @@ class MlxVlmClient(VlmClient):
         self.model_max_length = model.config.text_config.max_position_embeddings
         try:
             from mlx_vlm import generate
+
             self.generate = generate
         except ImportError:
             raise ImportError("Please install mlx-vlm to use the mlx-engine backend.")
@@ -82,12 +87,14 @@ class MlxVlmClient(VlmClient):
         return generate_kwargs
 
     def predict(
-            self,
-            image: Image.Image | bytes | str,
-            prompt: str = "",
-            sampling_params: SamplingParams | None = None,
-            priority: int | None = None,
+        self,
+        image: ImageType,
+        prompt: str = "",
+        sampling_params: SamplingParams | None = None,
+        priority: int | None = None,
     ) -> str:
+        if not isinstance(image, SingleImageType):
+            raise UnsupportedError("MlxVlmClient haven't support non-single image yet.")
 
         chat_prompt = self.processor.apply_chat_template(
             self.build_messages(prompt),
@@ -107,14 +114,13 @@ class MlxVlmClient(VlmClient):
         return response.text
 
     def batch_predict(
-            self,
-            images: Sequence[Image.Image | bytes | str],
-            prompts: Sequence[str] | str = "",
-            sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
-            priority: Sequence[int | None] | int | None = None,
+        self,
+        images: Sequence[ImageType],
+        prompts: Sequence[str] | str = "",
+        sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
+        priority: Sequence[int | None] | int | None = None,
     ) -> list[str]:
         results = []
-
         images_len = len(images)
 
         if isinstance(prompts, str):
@@ -123,7 +129,6 @@ class MlxVlmClient(VlmClient):
             sampling_params = [sampling_params] * images_len
 
         with tqdm(total=images_len, desc="Predict", disable=not self.use_tqdm) as pbar:
-
             # Since mlx-vlm's generate function does not support batching, we can only call it in a loop
             for i in range(0, images_len):
                 result = self.predict(
@@ -137,11 +142,11 @@ class MlxVlmClient(VlmClient):
         return results
 
     async def aio_predict(
-            self,
-            image: Image.Image | bytes | str,
-            prompt: str = "",
-            sampling_params: SamplingParams | None = None,
-            priority: int | None = None,
+        self,
+        image: ImageType,
+        prompt: str = "",
+        sampling_params: SamplingParams | None = None,
+        priority: int | None = None,
     ) -> str:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
@@ -154,14 +159,14 @@ class MlxVlmClient(VlmClient):
         )
 
     async def aio_batch_predict(
-            self,
-            images: Sequence[Image.Image | bytes | str],
-            prompts: Sequence[str] | str = "",
-            sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
-            priority: Sequence[int | None] | int | None = None,
-            semaphore: asyncio.Semaphore | None = None,
-            use_tqdm=False,
-            tqdm_desc: str | None = None,
+        self,
+        images: Sequence[ImageType],
+        prompts: Sequence[str] | str = "",
+        sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
+        priority: Sequence[int | None] | int | None = None,
+        semaphore: asyncio.Semaphore | None = None,
+        use_tqdm=False,
+        tqdm_desc: str | None = None,
     ) -> list[str]:
         return await asyncio.to_thread(
             self.batch_predict,

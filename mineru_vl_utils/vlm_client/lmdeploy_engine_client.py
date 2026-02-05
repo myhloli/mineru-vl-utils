@@ -7,9 +7,11 @@ from PIL import Image
 from .base_client import (
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_USER_PROMPT,
-    RequestError,
+    ImageType,
     SamplingParams,
     ServerError,
+    SingleImageType,
+    UnsupportedError,
     VlmClient,
 )
 from .utils import aio_load_resource, gather_tasks, get_rgb_image, load_resource
@@ -80,7 +82,7 @@ class LmdeployEngineVlmClient(VlmClient):
 
     def predict(
         self,
-        image: Image.Image | bytes | str,
+        image: ImageType,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
@@ -93,7 +95,7 @@ class LmdeployEngineVlmClient(VlmClient):
 
     def batch_predict(
         self,
-        images: Sequence[Image.Image | bytes | str],
+        images: Sequence[ImageType],
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         priority: Sequence[int | None] | int | None = None,
@@ -107,6 +109,8 @@ class LmdeployEngineVlmClient(VlmClient):
 
         image_objs: list[Image.Image] = []
         for image in images:
+            if not isinstance(image, SingleImageType):
+                raise UnsupportedError("LmdeployEngineVlmClient haven't support non-single image yet.")
             if isinstance(image, str):
                 image = load_resource(image)
             if not isinstance(image, Image.Image):
@@ -117,7 +121,7 @@ class LmdeployEngineVlmClient(VlmClient):
         if isinstance(prompts, str):
             chat_prompts: list[str] = [prompts] * len(images)
         else:  # isinstance(prompts, Sequence[str])
-            chat_prompts: list[str] = [prompt for prompt in prompts]
+            chat_prompts: list[str] = list(prompts)
 
         if not isinstance(sampling_params, Sequence):
             gen_configs = [self.build_lmdeploy_generation_config(sampling_params)] * len(images)
@@ -156,11 +160,13 @@ class LmdeployEngineVlmClient(VlmClient):
 
     async def aio_predict(
         self,
-        image: Image.Image | bytes | str,
+        image: ImageType,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
     ) -> str:
+        if not isinstance(image, SingleImageType):
+            raise UnsupportedError("LmdeployEngineVlmClient haven't support non-single image yet.")
         if isinstance(image, str):
             image = await aio_load_resource(image)
         if not isinstance(image, Image.Image):
@@ -180,10 +186,10 @@ class LmdeployEngineVlmClient(VlmClient):
 
         response_parts = []
         async for output in self.lmdeploy_engine.generate(
-                messages=lmdeploy_prompts,
-                gen_config=gen_config,
-                session_id=session_id,
-                **generate_kwargs,
+            messages=lmdeploy_prompts,
+            gen_config=gen_config,
+            session_id=session_id,
+            **generate_kwargs,
         ):
             if output.response is not None:
                 response_parts.append(output.response)
@@ -195,7 +201,7 @@ class LmdeployEngineVlmClient(VlmClient):
 
     async def aio_batch_predict(
         self,
-        images: Sequence[Image.Image | bytes | str],
+        images: Sequence[ImageType],
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         priority: Sequence[int | None] | int | None = None,
@@ -218,7 +224,7 @@ class LmdeployEngineVlmClient(VlmClient):
             semaphore = asyncio.Semaphore(self.max_concurrency)
 
         async def predict_with_semaphore(
-            image: Image.Image | bytes | str,
+            image: ImageType,
             prompt: str,
             sampling_params: SamplingParams | None,
             priority: int | None,

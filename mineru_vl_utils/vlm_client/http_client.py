@@ -7,22 +7,21 @@ from typing import AsyncIterable, Iterable, Sequence
 import httpx
 from httpx_retries import Retry, RetryTransport
 from loguru import logger
-from PIL import Image
 
 from .base_client import (
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_USER_PROMPT,
+    ImageType,
     RequestError,
     SamplingParams,
     ServerError,
     VlmClient,
 )
 from .utils import (
-    aio_load_resource,
+    aio_image_to_bytes_list_and_format,
     gather_tasks,
     get_image_data_url,
-    get_png_bytes,
-    load_resource,
+    image_to_bytes_list_and_format,
 )
 
 
@@ -217,33 +216,33 @@ class HttpVlmClient(VlmClient):
     def build_request_body(
         self,
         system_prompt: str,
-        image: bytes,
+        image: Sequence[bytes],
         prompt: str,
         sampling_params: SamplingParams | None,
         image_format: str | None,
         priority: int | None,
     ) -> dict:
-        image_url = get_image_data_url(image, image_format)
+        image_urls = [get_image_data_url(im, image_format) for im in image]
         prompt = prompt or self.prompt
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         if "<image>" in prompt:
-            prompt_1, prompt_2 = prompt.split("<image>", 1)
-            user_messages = [
-                *([{"type": "text", "text": prompt_1}] if prompt_1.strip() else []),
-                # {"type": "image_url", "image_url": {"url": image_url}},
-                {"type": "image_url", "image_url": {"url": image_url, "detail": "high"}},
-                *([{"type": "text", "text": prompt_2}] if prompt_2.strip() else []),
-            ]
+            prompt_parts = prompt.split("<image>", len(image_urls))
+            user_messages = []
+            for i in range(max(len(prompt_parts), len(image_urls))):
+                if i < len(prompt_parts) and prompt_parts[i]:
+                    user_messages.append({"type": "text", "text": prompt_parts[i]})
+                if i < len(image_urls):
+                    user_messages.append({"type": "image_url", "image_url": {"url": image_urls[i]}})
         elif self.text_before_image:
             user_messages = [
                 {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {"url": image_url}},
+                *({"type": "image_url", "image_url": {"url": image_url}} for image_url in image_urls),
             ]
         else:  # image before text, which is the default behavior.
             user_messages = [
-                {"type": "image_url", "image_url": {"url": image_url}},
+                *({"type": "image_url", "image_url": {"url": image_url}} for image_url in image_urls),
                 {"type": "text", "text": prompt},
             ]
         messages.append({"role": "user", "content": user_messages})
@@ -327,17 +326,12 @@ class HttpVlmClient(VlmClient):
 
     def predict(
         self,
-        image: Image.Image | bytes | str,
+        image: ImageType,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
     ) -> str:
-        image_format = None
-        if isinstance(image, str):
-            image = load_resource(image)
-        if isinstance(image, Image.Image):
-            image = get_png_bytes(image)
-            image_format = "png"
+        image, image_format = image_to_bytes_list_and_format(image)
 
         request_body = self.build_request_body(
             system_prompt=self.system_prompt,
@@ -365,7 +359,7 @@ class HttpVlmClient(VlmClient):
 
     def batch_predict(
         self,
-        images: Sequence[Image.Image | bytes | str],
+        images: Sequence[ImageType],
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         priority: Sequence[int | None] | int | None = None,
@@ -389,17 +383,12 @@ class HttpVlmClient(VlmClient):
 
     def stream_predict(
         self,
-        image: Image.Image | bytes | str,
+        image: ImageType,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
     ) -> Iterable[str]:
-        image_format = None
-        if isinstance(image, str):
-            image = load_resource(image)
-        if isinstance(image, Image.Image):
-            image = get_png_bytes(image)
-            image_format = "png"
+        image, image_format = image_to_bytes_list_and_format(image)
 
         request_body = self.build_request_body(
             system_prompt=self.system_prompt,
@@ -434,7 +423,7 @@ class HttpVlmClient(VlmClient):
 
     def stream_test(
         self,
-        image: Image.Image | bytes | str,
+        image: ImageType,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
@@ -454,17 +443,12 @@ class HttpVlmClient(VlmClient):
 
     async def aio_predict(
         self,
-        image: Image.Image | bytes | str,
+        image: ImageType,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
     ) -> str:
-        image_format = None
-        if isinstance(image, str):
-            image = await aio_load_resource(image)
-        if isinstance(image, Image.Image):
-            image = get_png_bytes(image)
-            image_format = "png"
+        image, image_format = await aio_image_to_bytes_list_and_format(image)
 
         request_body = self.build_request_body(
             system_prompt=self.system_prompt,
@@ -493,7 +477,7 @@ class HttpVlmClient(VlmClient):
 
     async def aio_batch_predict(
         self,
-        images: Sequence[Image.Image | bytes | str],
+        images: Sequence[ImageType],
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         priority: Sequence[int | None] | int | None = None,
@@ -516,7 +500,7 @@ class HttpVlmClient(VlmClient):
             semaphore = asyncio.Semaphore(self.max_concurrency)
 
         async def predict_with_semaphore(
-            image: Image.Image | bytes | str,
+            image: ImageType,
             prompt: str,
             sampling_params: SamplingParams | None,
             priority: int | None,
@@ -545,7 +529,7 @@ class HttpVlmClient(VlmClient):
 
     async def aio_batch_predict_as_iter(
         self,
-        images: Sequence[Image.Image | bytes | str],
+        images: Sequence[ImageType],
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         priority: Sequence[int | None] | int | None = None,
@@ -567,7 +551,7 @@ class HttpVlmClient(VlmClient):
 
         async def predict_with_semaphore(
             idx: int,
-            image: Image.Image | bytes | str,
+            image: ImageType,
             prompt: str,
             sampling_params: SamplingParams | None,
             priority: int | None,
@@ -596,7 +580,7 @@ class HttpVlmClient(VlmClient):
 
     # async def aio_stream_predict(
     #     self,
-    #     image: Image.Image | bytes | str,
+    #     image: ImageType,
     #     prompt: str = "",
     #     temperature: Optional[float] = None,
     #     top_p: Optional[float] = None,

@@ -1,8 +1,11 @@
 import asyncio
 from dataclasses import dataclass
-from typing import Literal, Sequence
+from typing import Literal, Sequence, TypeAlias
 
 from PIL import Image
+
+SingleImageType: TypeAlias = Image.Image | bytes | str
+ImageType: TypeAlias = SingleImageType | Sequence[SingleImageType] | None
 
 DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
 DEFAULT_USER_PROMPT = "What is the text in the illustrate?"
@@ -102,7 +105,7 @@ class VlmClient:
 
     def predict(
         self,
-        image: Image.Image | bytes | str,
+        image: ImageType,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
@@ -111,7 +114,7 @@ class VlmClient:
 
     def batch_predict(
         self,
-        images: Sequence[Image.Image | bytes | str],
+        images: Sequence[ImageType],
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         priority: Sequence[int | None] | int | None = None,
@@ -120,7 +123,7 @@ class VlmClient:
 
     async def aio_predict(
         self,
-        image: Image.Image | bytes | str,
+        image: ImageType,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
@@ -129,7 +132,7 @@ class VlmClient:
 
     async def aio_batch_predict(
         self,
-        images: Sequence[Image.Image | bytes | str],
+        images: Sequence[ImageType],
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         priority: Sequence[int | None] | int | None = None,

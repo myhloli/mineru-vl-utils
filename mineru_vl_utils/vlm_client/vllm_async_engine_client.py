@@ -1,23 +1,21 @@
 import asyncio
 import uuid
-from io import BytesIO
 from typing import TYPE_CHECKING, Sequence
 
 if TYPE_CHECKING:
     from vllm.outputs import RequestOutput
 
-from PIL import Image
-
 from .base_client import (
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_USER_PROMPT,
+    ImageType,
     RequestError,
     SamplingParams,
     ServerError,
     UnsupportedError,
     VlmClient,
 )
-from .utils import aio_load_resource, gather_tasks, get_rgb_image
+from .utils import aio_image_to_obj_list, gather_tasks
 
 
 class VllmAsyncEngineVlmClient(VlmClient):
@@ -67,26 +65,27 @@ class VllmAsyncEngineVlmClient(VlmClient):
         self.max_concurrency = max_concurrency
         self.debug = debug
 
-    def build_messages(self, prompt: str) -> list[dict]:
+    def build_messages(self, prompt: str, num_images: int) -> list[dict]:
         prompt = prompt or self.prompt
         messages = []
         if self.system_prompt:
             messages.append({"role": "system", "content": self.system_prompt})
         if "<image>" in prompt:
-            prompt_1, prompt_2 = prompt.split("<image>", 1)
-            user_messages = [
-                *([{"type": "text", "text": prompt_1}] if prompt_1.strip() else []),
-                {"type": "image"},
-                *([{"type": "text", "text": prompt_2}] if prompt_2.strip() else []),
-            ]
+            prompt_parts = prompt.split("<image>", num_images)
+            user_messages = []
+            for i in range(max(len(prompt_parts), num_images)):
+                if i < len(prompt_parts) and prompt_parts[i]:
+                    user_messages.append({"type": "text", "text": prompt_parts[i]})
+                if i < num_images:
+                    user_messages.append({"type": "image"})
         elif self.text_before_image:
             user_messages = [
                 {"type": "text", "text": prompt},
-                {"type": "image"},
+                *({"type": "image"} for _ in range(num_images)),
             ]
         else:  # image before text, which is the default behavior.
             user_messages = [
-                {"type": "image"},
+                *({"type": "image"} for _ in range(num_images)),
                 {"type": "text", "text": prompt},
             ]
         messages.append({"role": "user", "content": user_messages})
@@ -141,7 +140,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
 
     def predict(
         self,
-        image: Image.Image | bytes | str,
+        image: ImageType,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
@@ -154,7 +153,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
 
     def batch_predict(
         self,
-        images: Sequence[Image.Image | bytes | str],
+        images: Sequence[ImageType],
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         priority: Sequence[int | None] | int | None = None,
@@ -167,19 +166,15 @@ class VllmAsyncEngineVlmClient(VlmClient):
 
     async def aio_predict(
         self,
-        image: Image.Image | bytes | str,
+        image: ImageType,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
     ) -> str:
-        if isinstance(image, str):
-            image = await aio_load_resource(image)
-        if not isinstance(image, Image.Image):
-            image = Image.open(BytesIO(image))
-        image = get_rgb_image(image)
+        image = await aio_image_to_obj_list(image)
 
         chat_prompt: str = self.tokenizer.apply_chat_template(
-            self.build_messages(prompt),  # type: ignore
+            self.build_messages(prompt, len(image)),
             tokenize=False,
             add_generation_prompt=True,
         )
@@ -192,7 +187,10 @@ class VllmAsyncEngineVlmClient(VlmClient):
 
         last_output = None
         async for output in self.vllm_async_llm.generate(
-            prompt={"prompt": chat_prompt, "multi_modal_data": {"image": image}},
+            prompt={
+                "prompt": chat_prompt,
+                **({"multi_modal_data": {"image": image}} if image else {}),
+            },
             sampling_params=vllm_sp,
             request_id=str(uuid.uuid4()),
             **generate_kwargs,
@@ -206,7 +204,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
 
     async def aio_batch_predict(
         self,
-        images: Sequence[Image.Image | bytes | str],
+        images: Sequence[ImageType],
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         priority: Sequence[int | None] | int | None = None,
@@ -229,7 +227,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
             semaphore = asyncio.Semaphore(self.max_concurrency)
 
         async def predict_with_semaphore(
-            image: Image.Image | bytes | str,
+            image: ImageType,
             prompt: str,
             sampling_params: SamplingParams | None,
             priority: int | None,

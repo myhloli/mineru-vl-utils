@@ -1,5 +1,4 @@
 import asyncio
-from io import BytesIO
 from typing import TYPE_CHECKING, Sequence
 
 if TYPE_CHECKING:
@@ -11,13 +10,14 @@ from PIL import Image
 from .base_client import (
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_USER_PROMPT,
+    ImageType,
     RequestError,
     SamplingParams,
     ServerError,
     UnsupportedError,
     VlmClient,
 )
-from .utils import get_rgb_image, load_resource
+from .utils import image_to_obj_list
 
 
 class VllmEngineVlmClient(VlmClient):
@@ -59,26 +59,27 @@ class VllmEngineVlmClient(VlmClient):
         self.use_tqdm = use_tqdm
         self.debug = debug
 
-    def build_messages(self, prompt: str) -> list[dict]:
+    def build_messages(self, prompt: str, num_images: int) -> list[dict]:
         prompt = prompt or self.prompt
         messages = []
         if self.system_prompt:
             messages.append({"role": "system", "content": self.system_prompt})
         if "<image>" in prompt:
-            prompt_1, prompt_2 = prompt.split("<image>", 1)
-            user_messages = [
-                *([{"type": "text", "text": prompt_1}] if prompt_1.strip() else []),
-                {"type": "image"},
-                *([{"type": "text", "text": prompt_2}] if prompt_2.strip() else []),
-            ]
+            prompt_parts = prompt.split("<image>", num_images)
+            user_messages = []
+            for i in range(max(len(prompt_parts), num_images)):
+                if i < len(prompt_parts) and prompt_parts[i]:
+                    user_messages.append({"type": "text", "text": prompt_parts[i]})
+                if i < num_images:
+                    user_messages.append({"type": "image"})
         elif self.text_before_image:
             user_messages = [
                 {"type": "text", "text": prompt},
-                {"type": "image"},
+                *({"type": "image"} for _ in range(num_images)),
             ]
         else:  # image before text, which is the default behavior.
             user_messages = [
-                {"type": "image"},
+                *({"type": "image"} for _ in range(num_images)),
                 {"type": "text", "text": prompt},
             ]
         messages.append({"role": "user", "content": user_messages})
@@ -132,20 +133,16 @@ class VllmEngineVlmClient(VlmClient):
 
     def predict(
         self,
-        image: Image.Image | bytes | str,
+        image: ImageType,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
     ) -> str:
-        return self.batch_predict(
-            [image],  # type: ignore
-            [prompt],
-            [sampling_params],
-        )[0]
+        return self.batch_predict([image], [prompt], [sampling_params])[0]
 
     def batch_predict(
         self,
-        images: Sequence[Image.Image | bytes | str],
+        images: Sequence[ImageType],
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         priority: Sequence[int | None] | int | None = None,
@@ -156,33 +153,19 @@ class VllmEngineVlmClient(VlmClient):
             assert len(sampling_params) == len(images), "Length of sampling_params and images must match."
         if isinstance(priority, Sequence):
             assert len(priority) == len(images), "Length of priority and images must match."
-
-        image_objs: list[Image.Image] = []
-        for image in images:
-            if isinstance(image, str):
-                image = load_resource(image)
-            if not isinstance(image, Image.Image):
-                image = Image.open(BytesIO(image))
-            image = get_rgb_image(image)
-            image_objs.append(image)
-
         if isinstance(prompts, str):
-            chat_prompts: list[str] = [
-                self.tokenizer.apply_chat_template(
-                    self.build_messages(prompts),  # type: ignore
-                    tokenize=False,
-                    add_generation_prompt=True,
-                )
-            ] * len(images)
-        else:  # isinstance(prompts, Sequence[str])
-            chat_prompts: list[str] = [
-                self.tokenizer.apply_chat_template(
-                    self.build_messages(prompt),  # type: ignore
-                    tokenize=False,
-                    add_generation_prompt=True,
-                )
-                for prompt in prompts
-            ]
+            prompts = [prompts] * len(images)
+
+        image_lists = [image_to_obj_list(image) for image in images]
+
+        chat_prompts: list[str] = [
+            self.tokenizer.apply_chat_template(
+                self.build_messages(prompt, len(image_list)),
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+            for prompt, image_list in zip(prompts, image_lists)
+        ]
 
         if not isinstance(sampling_params, Sequence):
             vllm_sp_list = [self.build_vllm_sampling_params(sampling_params)] * len(images)
@@ -194,27 +177,23 @@ class VllmEngineVlmClient(VlmClient):
         batch_size = max(1, batch_size)
 
         for i in range(0, len(images), batch_size):
-            batch_image_objs = image_objs[i : i + batch_size]
+            batch_image_lists = image_lists[i : i + batch_size]
             batch_chat_prompts = chat_prompts[i : i + batch_size]
             batch_sp_list = vllm_sp_list[i : i + batch_size]
-            batch_outputs = self._predict_one_batch(
-                batch_image_objs,
-                batch_chat_prompts,
-                batch_sp_list,
-            )
+            batch_outputs = self._predict_one_batch(batch_image_lists, batch_chat_prompts, batch_sp_list)
             outputs.extend(batch_outputs)
 
         return outputs
 
     def _predict_one_batch(
         self,
-        image_objs: list[Image.Image],
+        image_lists: list[list[Image.Image]],
         chat_prompts: list[str],
         vllm_sampling_params: list["VllmSamplingParams"],
     ):
         vllm_prompts = [
-            {"prompt": chat_prompt, "multi_modal_data": {"image": image}}
-            for chat_prompt, image in zip(chat_prompts, image_objs)
+            {"prompt": chat_prompt, **({"multi_modal_data": {"image": image}} if image else {})}
+            for chat_prompt, image in zip(chat_prompts, image_lists)
         ]
 
         outputs = self.vllm_llm.generate(
@@ -227,7 +206,7 @@ class VllmEngineVlmClient(VlmClient):
 
     async def aio_predict(
         self,
-        image: Image.Image | bytes | str,
+        image: ImageType,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
@@ -240,7 +219,7 @@ class VllmEngineVlmClient(VlmClient):
 
     async def aio_batch_predict(
         self,
-        images: Sequence[Image.Image | bytes | str],
+        images: Sequence[ImageType],
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         priority: Sequence[int | None] | int | None = None,
