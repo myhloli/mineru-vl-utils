@@ -94,33 +94,31 @@ def client(tokenizer):
 
 class TestComputeConfidenceMetrics:
     def test_empty(self):
-        ppl, min_lp, ratio = compute_confidence_metrics([])
+        ppl, min_lp, std = compute_confidence_metrics([])
         assert ppl == float("inf")
         assert min_lp == float("-inf")
-        assert ratio == 1.0
+        assert std == 0.0
 
     def test_single_token(self):
-        ppl, min_lp, ratio = compute_confidence_metrics([-1.0])
+        ppl, min_lp, std = compute_confidence_metrics([-1.0])
         assert ppl == pytest.approx(math.exp(1.0))
         assert min_lp == -1.0
-        assert ratio == 0.0  # -1.0 > -2.0
+        assert std == 0.0  # single token has no spread
 
     def test_all_low_confidence(self):
-        ppl, min_lp, ratio = compute_confidence_metrics([-3.0, -4.0, -5.0])
-        assert ratio == 1.0
+        ppl, min_lp, std = compute_confidence_metrics([-3.0, -4.0, -5.0])
         assert min_lp == -5.0
+        assert std > 0.0
 
     def test_mixed(self):
         logprobs = [-0.5, -1.0, -3.0, -0.2]
-        ppl, min_lp, ratio = compute_confidence_metrics(logprobs)
+        ppl, min_lp, std = compute_confidence_metrics(logprobs)
         expected_ppl = math.exp(-sum(logprobs) / len(logprobs))
+        mean = sum(logprobs) / len(logprobs)
+        expected_std = math.sqrt(sum((lp - mean) ** 2 for lp in logprobs) / len(logprobs))
         assert ppl == pytest.approx(expected_ppl)
         assert min_lp == -3.0
-        assert ratio == 0.25  # only -3.0 < -2.0
-
-    def test_custom_threshold(self):
-        _, _, ratio = compute_confidence_metrics([-0.5, -1.0, -3.0, -0.2], threshold=-0.8)
-        assert ratio == 0.5  # -1.0 and -3.0 < -0.8
+        assert std == pytest.approx(expected_std)
 
 
 # ---------------------------------------------------------------------------
@@ -343,4 +341,5 @@ class TestScore:
         result_random = client.score(image=None, scored_text=random_text, prompt="q")
 
         assert result_correct.perplexity < result_random.perplexity
-        assert result_correct.low_confidence_ratio < result_random.low_confidence_ratio
+        assert result_correct.logprob_std >= 0
+        assert result_random.logprob_std >= 0

@@ -5,11 +5,11 @@ import re
 from concurrent.futures import Executor
 from typing import Literal, Sequence
 
-from PIL import Image
 from loguru import logger
+from PIL import Image
 
 from .post_process import post_process
-from .structs import BLOCK_TYPES, ContentBlock
+from .structs import BLOCK_TYPES, ContentBlock, ExtractResult
 from .vlm_client import DEFAULT_SYSTEM_PROMPT, SamplingParams, new_vlm_client
 from .vlm_client.utils import gather_tasks, get_png_bytes, get_rgb_image
 
@@ -229,7 +229,7 @@ class MinerUClientHelper:
         self,
         executor: Executor | None,
         images: list[Image.Image],
-        blocks_list: list[list[ContentBlock]],
+        blocks_list: Sequence[list[ContentBlock]],
         not_extract_list: list[str] | None = None,
     ) -> list[tuple[list[Image.Image | bytes], list[str], list[SamplingParams | None], list[int]]]:
         if executor is None:
@@ -239,7 +239,7 @@ class MinerUClientHelper:
     def batch_post_process(
         self,
         executor: Executor | None,
-        blocks_list: list[list[ContentBlock]],
+        blocks_list: Sequence[list[ContentBlock]],
     ) -> list[list[ContentBlock]]:
         if executor is None:
             return [self.post_process(blocks) for blocks in blocks_list]
@@ -324,14 +324,14 @@ class MinerUClient:
         max_retries: int = 3,  # for http-client backend only
         retry_backoff_factor: float = 0.5,  # for http-client backend only
     ) -> None:
-        env_debug_value = os.getenv('MINERU_VL_DEBUG_ENABLE', '')
+        env_debug_value = os.getenv("MINERU_VL_DEBUG_ENABLE", "")
         if env_debug_value:
-            if env_debug_value.lower() in ['true', '1', 'yes']:
+            if env_debug_value.lower() in ["true", "1", "yes"]:
                 debug = True
-            elif env_debug_value.lower() in ['false', '0', 'no']:
+            elif env_debug_value.lower() in ["false", "0", "no"]:
                 debug = False
             else:
-                logger.warning(f'unknown MINERU_VL_DEBUG_ENABLE config: {env_debug_value}, pass')
+                logger.warning(f"unknown MINERU_VL_DEBUG_ENABLE config: {env_debug_value}, pass")
 
         if backend == "transformers":
             if model is None or processor is None:
@@ -465,48 +465,81 @@ class MinerUClient:
         self,
         image: Image.Image,
         priority: int | None = None,
-    ) -> list[ContentBlock]:
+        scored: bool = False,
+    ) -> ExtractResult:
         layout_image = self.helper.prepare_for_layout(image)
         prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
         params = self.sampling_params.get("[layout]") or self.sampling_params.get("[default]")
-        output = self.client.predict(layout_image, prompt, params, priority)
-        return self.helper.parse_layout_output(output)
+        if scored:
+            output = self.client.predict_scored(layout_image, prompt, params, priority)
+            blocks = self.helper.parse_layout_output(output.text)
+            result = ExtractResult(blocks)
+            result.layout_scored = output
+            return result
+        else:
+            output = self.client.predict(layout_image, prompt, params, priority)
+            return ExtractResult(self.helper.parse_layout_output(output))
 
     def batch_layout_detect(
         self,
         images: list[Image.Image],
         priority: Sequence[int | None] | int | None = None,
-    ) -> list[list[ContentBlock]]:
+        scored: bool = False,
+    ) -> list[ExtractResult]:
         if priority is None and self.incremental_priority:
             priority = list(range(len(images)))
         layout_images = self.helper.batch_prepare_for_layout(self.executor, images)
         prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
         params = self.sampling_params.get("[layout]") or self.sampling_params.get("[default]")
-        outputs = self.client.batch_predict(layout_images, prompt, params, priority)
-        return self.helper.batch_parse_layout_output(self.executor, outputs)
+        if scored:
+            scored_outputs = self.client.batch_predict_scored(layout_images, prompt, params, priority)
+            texts = [so.text for so in scored_outputs]
+            blocks_list = self.helper.batch_parse_layout_output(self.executor, texts)
+            results = []
+            for blocks, so in zip(blocks_list, scored_outputs):
+                r = ExtractResult(blocks)
+                r.layout_scored = so
+                results.append(r)
+            return results
+        else:
+            outputs = self.client.batch_predict(layout_images, prompt, params, priority)
+            return [ExtractResult(blocks) for blocks in self.helper.batch_parse_layout_output(self.executor, outputs)]
 
     async def aio_layout_detect(
         self,
         image: Image.Image,
         priority: int | None = None,
         semaphore: asyncio.Semaphore | None = None,
-    ) -> list[ContentBlock]:
+        scored: bool = False,
+    ) -> ExtractResult:
         layout_image = await self.helper.aio_prepare_for_layout(self.executor, image)
         prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
         params = self.sampling_params.get("[layout]") or self.sampling_params.get("[default]")
-        if semaphore is None:
-            output = await self.client.aio_predict(layout_image, prompt, params, priority)
+        if scored:
+            if semaphore is None:
+                output = await self.client.aio_predict_scored(layout_image, prompt, params, priority)
+            else:
+                async with semaphore:
+                    output = await self.client.aio_predict_scored(layout_image, prompt, params, priority)
+            blocks = await self.helper.aio_parse_layout_output(self.executor, output.text)
+            result = ExtractResult(blocks)
+            result.layout_scored = output
+            return result
         else:
-            async with semaphore:
+            if semaphore is None:
                 output = await self.client.aio_predict(layout_image, prompt, params, priority)
-        return await self.helper.aio_parse_layout_output(self.executor, output)
+            else:
+                async with semaphore:
+                    output = await self.client.aio_predict(layout_image, prompt, params, priority)
+            return ExtractResult(await self.helper.aio_parse_layout_output(self.executor, output))
 
     async def aio_batch_layout_detect(
         self,
         images: list[Image.Image],
         priority: Sequence[int | None] | int | None = None,
         semaphore: asyncio.Semaphore | None = None,
-    ) -> list[list[ContentBlock]]:
+        scored: bool = False,
+    ) -> list[ExtractResult]:
         if priority is None and self.incremental_priority:
             priority = list(range(len(images)))
         semaphore = semaphore or asyncio.Semaphore(self.max_concurrency)
@@ -517,20 +550,43 @@ class MinerUClient:
         )
         prompt = self.prompts.get("[layout]") or self.prompts["[default]"]
         params = self.sampling_params.get("[layout]") or self.sampling_params.get("[default]")
-        outputs = await self.client.aio_batch_predict(
-            layout_images,
-            prompt,
-            params,
-            priority,
-            semaphore=semaphore,
-            use_tqdm=self.use_tqdm,
-            tqdm_desc="Layout Detection",
-        )
-        return await gather_tasks(
-            tasks=[self.helper.aio_parse_layout_output(self.executor, out) for out in outputs],
-            use_tqdm=self.use_tqdm,
-            tqdm_desc="Layout Output Parsing",
-        )
+        if scored:
+            scored_outputs = await self.client.aio_batch_predict_scored(
+                layout_images,
+                prompt,
+                params,
+                priority,
+                semaphore=semaphore,
+                use_tqdm=self.use_tqdm,
+                tqdm_desc="Layout Detection",
+            )
+            blocks_list = await gather_tasks(
+                tasks=[self.helper.aio_parse_layout_output(self.executor, so.text) for so in scored_outputs],
+                use_tqdm=self.use_tqdm,
+                tqdm_desc="Layout Output Parsing",
+            )
+            results = []
+            for blocks, so in zip(blocks_list, scored_outputs):
+                r = ExtractResult(blocks)
+                r.layout_scored = so
+                results.append(r)
+            return results
+        else:
+            outputs = await self.client.aio_batch_predict(
+                layout_images,
+                prompt,
+                params,
+                priority,
+                semaphore=semaphore,
+                use_tqdm=self.use_tqdm,
+                tqdm_desc="Layout Detection",
+            )
+            blocks_list = await gather_tasks(
+                tasks=[self.helper.aio_parse_layout_output(self.executor, out) for out in outputs],
+                use_tqdm=self.use_tqdm,
+                tqdm_desc="Layout Output Parsing",
+            )
+            return [ExtractResult(blocks) for blocks in blocks_list]
 
     def content_extract(
         self,
@@ -648,13 +704,22 @@ class MinerUClient:
         image: Image.Image,
         priority: int | None = None,
         not_extract_list: list[str] | None = None,
-    ) -> list[ContentBlock]:
-        blocks = self.layout_detect(image, priority)
-        block_images, prompts, params, indices = self.helper.prepare_for_extract(image, blocks, not_extract_list)
-        outputs = self.client.batch_predict(block_images, prompts, params, priority)
-        for idx, output in zip(indices, outputs):
-            blocks[idx].content = output
-        return self.helper.post_process(blocks)
+        scored: bool = False,
+    ) -> ExtractResult:
+        layout_result = self.layout_detect(image, priority, scored)
+        block_images, prompts, params, indices = self.helper.prepare_for_extract(image, layout_result, not_extract_list)
+        if scored:
+            scored_outputs = self.client.batch_predict_scored(block_images, prompts, params, priority)
+            for idx, so in zip(indices, scored_outputs):
+                layout_result[idx].content = so.text
+                layout_result[idx].scored = so
+        else:
+            outputs = self.client.batch_predict(block_images, prompts, params, priority)
+            for idx, output in zip(indices, outputs):
+                layout_result[idx].content = output
+        result = ExtractResult(self.helper.post_process(layout_result))
+        result.layout_scored = layout_result.layout_scored
+        return result
 
     async def aio_two_step_extract(
         self,
@@ -662,32 +727,54 @@ class MinerUClient:
         priority: int | None = None,
         semaphore: asyncio.Semaphore | None = None,
         not_extract_list: list[str] | None = None,
-    ) -> list[ContentBlock]:
+        scored: bool = False,
+    ) -> ExtractResult:
         semaphore = semaphore or asyncio.Semaphore(self.max_concurrency)
-        blocks = await self.aio_layout_detect(image, priority, semaphore)
+        layout_result = await self.aio_layout_detect(image, priority, semaphore, scored)
         block_images, prompts, params, indices = await self.helper.aio_prepare_for_extract(
             self.executor,
             image,
-            blocks,
+            layout_result,
             not_extract_list,
         )
-        outputs = await self.client.aio_batch_predict(block_images, prompts, params, priority, semaphore=semaphore)
-        for idx, output in zip(indices, outputs):
-            blocks[idx].content = output
-        return await self.helper.aio_post_process(self.executor, blocks)
+        if scored:
+            scored_outputs = await self.client.aio_batch_predict_scored(
+                block_images,
+                prompts,
+                params,
+                priority,
+                semaphore=semaphore,
+            )
+            for idx, so in zip(indices, scored_outputs):
+                layout_result[idx].content = so.text
+                layout_result[idx].scored = so
+        else:
+            outputs = await self.client.aio_batch_predict(block_images, prompts, params, priority, semaphore=semaphore)
+            for idx, output in zip(indices, outputs):
+                layout_result[idx].content = output
+        processed = await self.helper.aio_post_process(self.executor, layout_result)
+        result = ExtractResult(processed)
+        result.layout_scored = layout_result.layout_scored
+        return result
 
     def concurrent_two_step_extract(
         self,
         images: list[Image.Image],
         priority: Sequence[int | None] | int | None = None,
         not_extract_list: list[str] | None = None,
-    ) -> list[list[ContentBlock]]:
+        scored: bool = False,
+    ) -> list[ExtractResult]:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = None
 
-        task = self.aio_concurrent_two_step_extract(images, priority, not_extract_list)
+        task = self.aio_concurrent_two_step_extract(
+            images,
+            priority,
+            not_extract_list,
+            scored=scored,
+        )
 
         if loop is not None:
             return loop.run_until_complete(task)
@@ -700,14 +787,15 @@ class MinerUClient:
         priority: Sequence[int | None] | int | None = None,
         not_extract_list: list[str] | None = None,
         semaphore: asyncio.Semaphore | None = None,
-    ) -> list[list[ContentBlock]]:
+        scored: bool = False,
+    ) -> list[ExtractResult]:
         if priority is None and self.incremental_priority:
             priority = list(range(len(images)))
         if not isinstance(priority, Sequence):
             priority = [priority] * len(images)
         semaphore = semaphore or asyncio.Semaphore(self.max_concurrency)
         return await gather_tasks(
-            tasks=[self.aio_two_step_extract(*args, semaphore, not_extract_list) for args in zip(images, priority)],
+            tasks=[self.aio_two_step_extract(*args, semaphore, not_extract_list, scored) for args in zip(images, priority)],
             use_tqdm=self.use_tqdm,
             tqdm_desc="Two Step Extraction",
         )
@@ -717,10 +805,11 @@ class MinerUClient:
         images: list[Image.Image],
         priority: Sequence[int | None] | int | None = None,
         not_extract_list: list[str] | None = None,
-    ) -> list[list[ContentBlock]]:
+        scored: bool = False,
+    ) -> list[ExtractResult]:
         if priority is None and self.incremental_priority:
             priority = list(range(len(images)))
-        blocks_list = self.batch_layout_detect(images, priority)
+        layout_results = self.batch_layout_detect(images, priority, scored)
         all_images: list[Image.Image | bytes] = []
         all_prompts: list[str] = []
         all_params: list[SamplingParams | None] = []
@@ -728,7 +817,7 @@ class MinerUClient:
         prepared_inputs = self.helper.batch_prepare_for_extract(
             self.executor,
             images,
-            blocks_list,
+            layout_results,
             not_extract_list,
         )
         for img_idx, (block_images, prompts, params, indices) in enumerate(prepared_inputs):
@@ -736,10 +825,22 @@ class MinerUClient:
             all_prompts.extend(prompts)
             all_params.extend(params)
             all_indices.extend([(img_idx, idx) for idx in indices])
-        outputs = self.client.batch_predict(all_images, all_prompts, all_params, priority)
-        for (img_idx, idx), output in zip(all_indices, outputs):
-            blocks_list[img_idx][idx].content = output
-        return self.helper.batch_post_process(self.executor, blocks_list)
+        if scored:
+            scored_outputs = self.client.batch_predict_scored(all_images, all_prompts, all_params, priority)
+            for (img_idx, idx), so in zip(all_indices, scored_outputs):
+                layout_results[img_idx][idx].content = so.text
+                layout_results[img_idx][idx].scored = so
+        else:
+            outputs = self.client.batch_predict(all_images, all_prompts, all_params, priority)
+            for (img_idx, idx), output in zip(all_indices, outputs):
+                layout_results[img_idx][idx].content = output
+        processed_list = self.helper.batch_post_process(self.executor, layout_results)
+        results = []
+        for orig_result, proc_blocks in zip(layout_results, processed_list):
+            r = ExtractResult(proc_blocks)
+            r.layout_scored = orig_result.layout_scored
+            results.append(r)
+        return results
 
     async def aio_stepping_two_step_extract(
         self,
@@ -747,23 +848,20 @@ class MinerUClient:
         priority: Sequence[int | None] | int | None = None,
         not_extract_list: list[str] | None = None,
         semaphore: asyncio.Semaphore | None = None,
-    ) -> list[list[ContentBlock]]:
+        scored: bool = False,
+    ) -> list[ExtractResult]:
         if priority is None and self.incremental_priority:
             priority = list(range(len(images)))
         semaphore = semaphore or asyncio.Semaphore(self.max_concurrency)
-        blocks_list = await self.aio_batch_layout_detect(images, priority, semaphore)
+        layout_results = await self.aio_batch_layout_detect(images, priority, semaphore, scored)
         all_images: list[Image.Image | bytes] = []
         all_prompts: list[str] = []
         all_params: list[SamplingParams | None] = []
         all_indices: list[tuple[int, int]] = []
         prepared_inputs = await gather_tasks(
             tasks=[
-                self.helper.aio_prepare_for_extract(
-                    self.executor,
-                    *args,
-                    not_extract_list,
-                )
-                for args in zip(images, blocks_list)
+                self.helper.aio_prepare_for_extract(self.executor, *args, not_extract_list)
+                for args in zip(images, layout_results)
             ],
             use_tqdm=self.use_tqdm,
             tqdm_desc="Extract Preparation",
@@ -773,33 +871,54 @@ class MinerUClient:
             all_prompts.extend(prompts)
             all_params.extend(params)
             all_indices.extend([(img_idx, idx) for idx in indices])
-        outputs = await self.client.aio_batch_predict(
-            all_images,
-            all_prompts,
-            all_params,
-            priority,
-            semaphore=semaphore,
-            use_tqdm=self.use_tqdm,
-            tqdm_desc="Extraction",
-        )
-        for (img_idx, idx), output in zip(all_indices, outputs):
-            blocks_list[img_idx][idx].content = output
-        return await gather_tasks(
-            tasks=[self.helper.aio_post_process(self.executor, blocks) for blocks in blocks_list],
+        if scored:
+            scored_outputs = await self.client.aio_batch_predict_scored(
+                all_images,
+                all_prompts,
+                all_params,
+                priority,
+                semaphore=semaphore,
+                use_tqdm=self.use_tqdm,
+                tqdm_desc="Extraction",
+            )
+            for (img_idx, idx), so in zip(all_indices, scored_outputs):
+                layout_results[img_idx][idx].content = so.text
+                layout_results[img_idx][idx].scored = so
+        else:
+            outputs = await self.client.aio_batch_predict(
+                all_images,
+                all_prompts,
+                all_params,
+                priority,
+                semaphore=semaphore,
+                use_tqdm=self.use_tqdm,
+                tqdm_desc="Extraction",
+            )
+            for (img_idx, idx), output in zip(all_indices, outputs):
+                layout_results[img_idx][idx].content = output
+        processed_list = await gather_tasks(
+            tasks=[self.helper.aio_post_process(self.executor, lr) for lr in layout_results],
             use_tqdm=self.use_tqdm,
             tqdm_desc="Post Processing",
         )
+        results = []
+        for orig_result, proc_blocks in zip(layout_results, processed_list):
+            r = ExtractResult(proc_blocks)
+            r.layout_scored = orig_result.layout_scored
+            results.append(r)
+        return results
 
     def batch_two_step_extract(
         self,
         images: list[Image.Image],
         priority: Sequence[int | None] | int | None = None,
         not_extract_list: list[str] | None = None,
-    ) -> list[list[ContentBlock]]:
+        scored: bool = False,
+    ) -> list[ExtractResult]:
         if self.batching_mode == "concurrent":
-            return self.concurrent_two_step_extract(images, priority, not_extract_list)
+            return self.concurrent_two_step_extract(images, priority, not_extract_list, scored)
         else:  # self.batching_mode == "stepping"
-            return self.stepping_two_step_extract(images, priority, not_extract_list)
+            return self.stepping_two_step_extract(images, priority, not_extract_list, scored)
 
     async def aio_batch_two_step_extract(
         self,
@@ -807,9 +926,10 @@ class MinerUClient:
         priority: Sequence[int | None] | int | None = None,
         not_extract_list: list[str] | None = None,
         semaphore: asyncio.Semaphore | None = None,
-    ) -> list[list[ContentBlock]]:
+        scored: bool = False,
+    ) -> list[ExtractResult]:
         semaphore = semaphore or asyncio.Semaphore(self.max_concurrency)
         if self.batching_mode == "concurrent":
-            return await self.aio_concurrent_two_step_extract(images, priority, not_extract_list, semaphore)
+            return await self.aio_concurrent_two_step_extract(images, priority, not_extract_list, semaphore, scored)
         else:  # self.batching_mode == "stepping"
-            return await self.aio_stepping_two_step_extract(images, priority, not_extract_list, semaphore)
+            return await self.aio_stepping_two_step_extract(images, priority, not_extract_list, semaphore, scored)

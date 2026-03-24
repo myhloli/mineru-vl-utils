@@ -49,19 +49,20 @@ class ScoredOutput:
     logprobs: list[float]
     perplexity: float
     min_logprob: float
-    low_confidence_ratio: float
+    logprob_std: float
 
 
 def compute_confidence_metrics(
-    logprobs: list[float], threshold: float = -2.0
+    logprobs: list[float],
 ) -> tuple[float, float, float]:
-    """Compute confidence metrics. Returns (perplexity, min_logprob, low_confidence_ratio)."""
+    """Compute confidence metrics. Returns (perplexity, min_logprob, logprob_std)."""
     if not logprobs:
-        return (float("inf"), float("-inf"), 1.0)
+        return (float("inf"), float("-inf"), 0.0)
     perplexity = math.exp(-sum(logprobs) / len(logprobs))
     min_lp = min(logprobs)
-    low_ratio = sum(1 for lp in logprobs if lp < threshold) / len(logprobs)
-    return (perplexity, min_lp, low_ratio)
+    mean = sum(logprobs) / len(logprobs)
+    std = math.sqrt(sum((lp - mean) ** 2 for lp in logprobs) / len(logprobs))
+    return (perplexity, min_lp, std)
 
 
 class VlmClient:
@@ -179,11 +180,8 @@ class VlmClient:
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
-        low_confidence_threshold: float = -2.0,
     ) -> ScoredOutput:
-        raise UnsupportedError(
-            f"predict_scored() is not supported by {type(self).__name__}."
-        )
+        raise UnsupportedError(f"predict_scored() is not supported by {type(self).__name__}.")
 
     def batch_predict_scored(
         self,
@@ -191,11 +189,8 @@ class VlmClient:
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         priority: Sequence[int | None] | int | None = None,
-        low_confidence_threshold: float = -2.0,
     ) -> list[ScoredOutput]:
-        raise UnsupportedError(
-            f"batch_predict_scored() is not supported by {type(self).__name__}."
-        )
+        raise UnsupportedError(f"batch_predict_scored() is not supported by {type(self).__name__}.")
 
     async def aio_predict_scored(
         self,
@@ -203,11 +198,8 @@ class VlmClient:
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
-        low_confidence_threshold: float = -2.0,
     ) -> ScoredOutput:
-        raise UnsupportedError(
-            f"aio_predict_scored() is not supported by {type(self).__name__}."
-        )
+        raise UnsupportedError(f"aio_predict_scored() is not supported by {type(self).__name__}.")
 
     async def aio_batch_predict_scored(
         self,
@@ -218,11 +210,8 @@ class VlmClient:
         semaphore: asyncio.Semaphore | None = None,
         use_tqdm: bool = False,
         tqdm_desc: str | None = None,
-        low_confidence_threshold: float = -2.0,
     ) -> list[ScoredOutput]:
-        raise UnsupportedError(
-            f"aio_batch_predict_scored() is not supported by {type(self).__name__}."
-        )
+        raise UnsupportedError(f"aio_batch_predict_scored() is not supported by {type(self).__name__}.")
 
     # --- score (evaluation PPL / teacher forcing) ---
 
@@ -233,11 +222,8 @@ class VlmClient:
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
-        low_confidence_threshold: float = -2.0,
     ) -> ScoredOutput:
-        raise UnsupportedError(
-            f"score() is not supported by {type(self).__name__}."
-        )
+        raise UnsupportedError(f"score() is not supported by {type(self).__name__}.")
 
     def batch_score(
         self,
@@ -246,11 +232,8 @@ class VlmClient:
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         priority: Sequence[int | None] | int | None = None,
-        low_confidence_threshold: float = -2.0,
     ) -> list[ScoredOutput]:
-        raise UnsupportedError(
-            f"batch_score() is not supported by {type(self).__name__}."
-        )
+        raise UnsupportedError(f"batch_score() is not supported by {type(self).__name__}.")
 
     async def aio_score(
         self,
@@ -259,11 +242,8 @@ class VlmClient:
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
-        low_confidence_threshold: float = -2.0,
     ) -> ScoredOutput:
-        raise UnsupportedError(
-            f"aio_score() is not supported by {type(self).__name__}."
-        )
+        raise UnsupportedError(f"aio_score() is not supported by {type(self).__name__}.")
 
     async def aio_batch_score(
         self,
@@ -275,11 +255,8 @@ class VlmClient:
         semaphore: asyncio.Semaphore | None = None,
         use_tqdm: bool = False,
         tqdm_desc: str | None = None,
-        low_confidence_threshold: float = -2.0,
     ) -> list[ScoredOutput]:
-        raise UnsupportedError(
-            f"aio_batch_score() is not supported by {type(self).__name__}."
-        )
+        raise UnsupportedError(f"aio_batch_score() is not supported by {type(self).__name__}.")
 
 
 def new_vlm_client(

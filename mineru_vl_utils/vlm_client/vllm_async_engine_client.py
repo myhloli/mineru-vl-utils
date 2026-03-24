@@ -18,6 +18,9 @@ from .base_client import (
     compute_confidence_metrics,
 )
 from .utils import aio_image_to_obj_list, gather_tasks
+from .vllm_engine_client import _patch_vllm_logprobs_overflow
+
+_patch_vllm_logprobs_overflow()
 
 
 class VllmAsyncEngineVlmClient(VlmClient):
@@ -258,7 +261,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
 
     # --- scored predict (generation PPL) ---
 
-    def _get_output_scored(self, output: "RequestOutput", threshold: float) -> ScoredOutput:
+    def _get_output_scored(self, output: "RequestOutput") -> ScoredOutput:
         text = self.get_output_content(output)
         choice = output.outputs[0]
         token_ids = list(choice.token_ids)
@@ -266,14 +269,14 @@ class VllmAsyncEngineVlmClient(VlmClient):
         for i, tid in enumerate(token_ids):
             lp_dict = choice.logprobs[i]
             logprobs_list.append(lp_dict[tid].logprob)
-        ppl, min_lp, low_ratio = compute_confidence_metrics(logprobs_list, threshold)
+        ppl, min_lp, std = compute_confidence_metrics(logprobs_list)
         return ScoredOutput(
             text=text,
             token_ids=token_ids,
             logprobs=logprobs_list,
             perplexity=ppl,
             min_logprob=min_lp,
-            low_confidence_ratio=low_ratio,
+            logprob_std=std,
         )
 
     async def aio_predict_scored(
@@ -282,7 +285,6 @@ class VllmAsyncEngineVlmClient(VlmClient):
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
-        low_confidence_threshold: float = -2.0,
     ) -> ScoredOutput:
         image = await aio_image_to_obj_list(image)
 
@@ -314,7 +316,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
         if last_output is None:
             raise ServerError("No output from the server.")
 
-        return self._get_output_scored(last_output, low_confidence_threshold)
+        return self._get_output_scored(last_output)
 
     async def aio_batch_predict_scored(
         self,
@@ -325,7 +327,6 @@ class VllmAsyncEngineVlmClient(VlmClient):
         semaphore: asyncio.Semaphore | None = None,
         use_tqdm: bool = False,
         tqdm_desc: str | None = None,
-        low_confidence_threshold: float = -2.0,
     ) -> list[ScoredOutput]:
         if isinstance(prompts, str):
             prompts = [prompts] * len(images)
@@ -353,7 +354,6 @@ class VllmAsyncEngineVlmClient(VlmClient):
                     prompt=prompt,
                     sampling_params=sp,
                     priority=prio,
-                    low_confidence_threshold=low_confidence_threshold,
                 )
 
         return await gather_tasks(
@@ -383,7 +383,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
 
         return full_prompt, scored_token_count
 
-    def _extract_prompt_logprobs(self, output: "RequestOutput", scored_token_count: int, threshold: float) -> ScoredOutput:
+    def _extract_prompt_logprobs(self, output: "RequestOutput", scored_token_count: int) -> ScoredOutput:
         prompt_logprobs = output.prompt_logprobs
         prompt_token_ids = output.prompt_token_ids
 
@@ -397,16 +397,25 @@ class VllmAsyncEngineVlmClient(VlmClient):
             if lp_dict is None:
                 continue
             token_ids.append(tid)
-            logprobs_list.append(lp_dict[tid].logprob)
+            if tid in lp_dict:
+                logprobs_list.append(lp_dict[tid].logprob)
+            elif i > 0 and prompt_token_ids[i - 1] in lp_dict:
+                # vLLM v1 async engine bug (chunked prefill): prompt_logprobs dict
+                # key is off-by-one — stores ptids[i-1] instead of ptids[i] as key.
+                # The logprob VALUE is still P(ptids[i]|context), just the key is wrong.
+                logprobs_list.append(lp_dict[prompt_token_ids[i - 1]].logprob)
+            else:
+                # ultimate fallback: take whichever single logprob is in the dict
+                logprobs_list.append(next(iter(lp_dict.values())).logprob)
 
-        ppl, min_lp, low_ratio = compute_confidence_metrics(logprobs_list, threshold)
+        ppl, min_lp, std = compute_confidence_metrics(logprobs_list)
         return ScoredOutput(
             text="",  # placeholder, caller sets this
             token_ids=token_ids,
             logprobs=logprobs_list,
             perplexity=ppl,
             min_logprob=min_lp,
-            low_confidence_ratio=low_ratio,
+            logprob_std=std,
         )
 
     async def aio_score(
@@ -416,7 +425,6 @@ class VllmAsyncEngineVlmClient(VlmClient):
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
-        low_confidence_threshold: float = -2.0,
     ) -> ScoredOutput:
         image_list = await aio_image_to_obj_list(image)
 
@@ -445,7 +453,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
         if last_output is None:
             raise ServerError("No output from the server.")
 
-        scored_output = self._extract_prompt_logprobs(last_output, scored_token_count, low_confidence_threshold)
+        scored_output = self._extract_prompt_logprobs(last_output, scored_token_count)
         scored_output.text = scored_text
         return scored_output
 
@@ -459,7 +467,6 @@ class VllmAsyncEngineVlmClient(VlmClient):
         semaphore: asyncio.Semaphore | None = None,
         use_tqdm: bool = False,
         tqdm_desc: str | None = None,
-        low_confidence_threshold: float = -2.0,
     ) -> list[ScoredOutput]:
         assert len(scored_texts) == len(images), "Length of scored_texts and images must match."
         if isinstance(prompts, str):
@@ -490,7 +497,6 @@ class VllmAsyncEngineVlmClient(VlmClient):
                     prompt=prompt,
                     sampling_params=sp,
                     priority=prio,
-                    low_confidence_threshold=low_confidence_threshold,
                 )
 
         return await gather_tasks(

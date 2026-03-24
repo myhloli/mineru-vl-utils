@@ -1,5 +1,7 @@
 from typing import Literal
 
+from .vlm_client.base_client import ScoredOutput
+
 
 class BlockType:
     TEXT = "text"  # 文本
@@ -76,6 +78,23 @@ ANGLE_OPTIONS = {
 }
 
 
+class ExtractResult(list["ContentBlock"]):
+    """
+    list[ContentBlock] subclass returned by two_step_extract() and related methods.
+    Backward-compatible: all existing list[ContentBlock] usage works unchanged.
+
+    When scored=True is passed to the extraction method:
+    - layout_scored: ScoredOutput for the layout detection step (whole-page score)
+    - blocks[i].scored: ScoredOutput for each content block's extraction step
+    """
+
+    layout_scored: ScoredOutput | None
+
+    def __init__(self, blocks=()):
+        super().__init__(blocks)
+        self.layout_scored = None
+
+
 class ContentBlock(dict):
     def __init__(
         self,
@@ -107,6 +126,7 @@ class ContentBlock(dict):
         self["bbox"] = bbox
         self["angle"] = angle
         self["content"] = content
+        self["scored"] = None
 
     @property
     def type(self) -> str:
@@ -147,3 +167,11 @@ class ContentBlock(dict):
     def content(self, value: str | None):
         assert value is None or isinstance(value, str), "Content must be a string or None"
         self["content"] = value
+
+    @property
+    def scored(self) -> ScoredOutput | None:
+        return self["scored"]
+
+    @scored.setter
+    def scored(self, value: ScoredOutput | None):
+        self["scored"] = value
