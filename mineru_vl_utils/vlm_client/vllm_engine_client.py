@@ -13,9 +13,11 @@ from .base_client import (
     ImageType,
     RequestError,
     SamplingParams,
+    ScoredOutput,
     ServerError,
     UnsupportedError,
     VlmClient,
+    compute_confidence_metrics,
 )
 from .utils import image_to_obj_list
 
@@ -203,6 +205,238 @@ class VllmEngineVlmClient(VlmClient):
         )
 
         return [self.get_output_content(output) for output in outputs]
+
+    # --- scored predict (generation PPL) ---
+
+    def get_output_scored(self, output: "RequestOutput", threshold: float) -> ScoredOutput:
+        text = self.get_output_content(output)
+        choice = output.outputs[0]
+        token_ids = list(choice.token_ids)
+        logprobs_list: list[float] = []
+        for i, tid in enumerate(token_ids):
+            lp_dict = choice.logprobs[i]
+            logprobs_list.append(lp_dict[tid].logprob)
+        ppl, min_lp, low_ratio = compute_confidence_metrics(logprobs_list, threshold)
+        return ScoredOutput(
+            text=text,
+            token_ids=token_ids,
+            logprobs=logprobs_list,
+            perplexity=ppl,
+            min_logprob=min_lp,
+            low_confidence_ratio=low_ratio,
+        )
+
+    def predict_scored(
+        self,
+        image: ImageType,
+        prompt: str = "",
+        sampling_params: SamplingParams | None = None,
+        priority: int | None = None,
+        low_confidence_threshold: float = -2.0,
+    ) -> ScoredOutput:
+        return self.batch_predict_scored(
+            [image],
+            [prompt],
+            [sampling_params],
+            low_confidence_threshold=low_confidence_threshold,
+        )[0]
+
+    def batch_predict_scored(
+        self,
+        images: Sequence[ImageType],
+        prompts: Sequence[str] | str = "",
+        sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
+        priority: Sequence[int | None] | int | None = None,
+        low_confidence_threshold: float = -2.0,
+    ) -> list[ScoredOutput]:
+        if not isinstance(prompts, str):
+            assert len(prompts) == len(images), "Length of prompts and images must match."
+        if isinstance(sampling_params, Sequence):
+            assert len(sampling_params) == len(images), "Length of sampling_params and images must match."
+        if isinstance(prompts, str):
+            prompts = [prompts] * len(images)
+
+        image_lists = [image_to_obj_list(image) for image in images]
+
+        chat_prompts: list[str] = [
+            self.tokenizer.apply_chat_template(
+                self.build_messages(prompt, len(image_list)),
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+            for prompt, image_list in zip(prompts, image_lists)
+        ]
+
+        if not isinstance(sampling_params, Sequence):
+            vllm_sp_list = [self.build_vllm_sampling_params(sampling_params)] * len(images)
+        else:
+            vllm_sp_list = [self.build_vllm_sampling_params(sp) for sp in sampling_params]
+
+        # Enable logprobs on all sampling params
+        for vllm_sp in vllm_sp_list:
+            vllm_sp.logprobs = 0
+
+        results: list[ScoredOutput] = []
+        batch_size = self.batch_size if self.batch_size > 0 else len(images)
+        batch_size = max(1, batch_size)
+
+        for i in range(0, len(images), batch_size):
+            batch_image_lists = image_lists[i : i + batch_size]
+            batch_chat_prompts = chat_prompts[i : i + batch_size]
+            batch_sp_list = vllm_sp_list[i : i + batch_size]
+
+            vllm_prompts = [
+                {"prompt": chat_prompt, **({"multi_modal_data": {"image": image}} if image else {})}
+                for chat_prompt, image in zip(batch_chat_prompts, batch_image_lists)
+            ]
+
+            outputs = self.vllm_llm.generate(
+                prompts=vllm_prompts,  # type: ignore
+                sampling_params=batch_sp_list,
+                use_tqdm=self.use_tqdm,
+            )
+
+            results.extend(self.get_output_scored(output, low_confidence_threshold) for output in outputs)
+
+        return results
+
+    # --- score (evaluation PPL / teacher forcing) ---
+
+    def _build_score_prompt_pair(self, prompt: str, image_list: list[Image.Image], scored_text: str) -> tuple[str, int]:
+        """Build prompt for scoring. Returns (full_prompt, scored_token_count)."""
+        messages = self.build_messages(prompt, len(image_list))
+
+        # Full prompt with assistant turn
+        messages_with_assistant = messages + [{"role": "assistant", "content": scored_text}]
+        full_prompt: str = self.tokenizer.apply_chat_template(
+            messages_with_assistant, tokenize=False, add_generation_prompt=False
+        )
+
+        # Base prompt without assistant turn
+        base_prompt: str = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+
+        # Compute token count for scored_text portion
+        full_token_ids = self.tokenizer.encode(full_prompt)
+        base_token_ids = self.tokenizer.encode(base_prompt)
+        scored_token_count = len(full_token_ids) - len(base_token_ids)
+        if scored_token_count <= 0:
+            raise RequestError(f"scored_text tokenizes to {scored_token_count} tokens, expected > 0.")
+
+        return full_prompt, scored_token_count
+
+    def _extract_prompt_logprobs(self, output: "RequestOutput", scored_token_count: int, threshold: float) -> ScoredOutput:
+        """Extract logprobs for the scored_text portion from prompt_logprobs."""
+        prompt_logprobs = output.prompt_logprobs
+        prompt_token_ids = output.prompt_token_ids
+
+        # prompt_logprobs[0] is always None (BOS token)
+        # Extract logprobs from the last scored_token_count positions
+        token_ids: list[int] = []
+        logprobs_list: list[float] = []
+
+        start_idx = len(prompt_token_ids) - scored_token_count
+        for i in range(start_idx, len(prompt_token_ids)):
+            tid = prompt_token_ids[i]
+            lp_dict = prompt_logprobs[i]
+            if lp_dict is None:
+                continue
+            token_ids.append(tid)
+            logprobs_list.append(lp_dict[tid].logprob)
+
+        ppl, min_lp, low_ratio = compute_confidence_metrics(logprobs_list, threshold)
+        return ScoredOutput(
+            text="",  # placeholder, caller sets this
+            token_ids=token_ids,
+            logprobs=logprobs_list,
+            perplexity=ppl,
+            min_logprob=min_lp,
+            low_confidence_ratio=low_ratio,
+        )
+
+    def score(
+        self,
+        image: ImageType,
+        scored_text: str,
+        prompt: str = "",
+        sampling_params: SamplingParams | None = None,
+        priority: int | None = None,
+        low_confidence_threshold: float = -2.0,
+    ) -> ScoredOutput:
+        return self.batch_score(
+            [image],
+            [scored_text],
+            [prompt],
+            [sampling_params],
+            low_confidence_threshold=low_confidence_threshold,
+        )[0]
+
+    def batch_score(
+        self,
+        images: Sequence[ImageType],
+        scored_texts: Sequence[str],
+        prompts: Sequence[str] | str = "",
+        sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
+        priority: Sequence[int | None] | int | None = None,
+        low_confidence_threshold: float = -2.0,
+    ) -> list[ScoredOutput]:
+        assert len(scored_texts) == len(images), "Length of scored_texts and images must match."
+        if not isinstance(prompts, str):
+            assert len(prompts) == len(images), "Length of prompts and images must match."
+        if isinstance(sampling_params, Sequence):
+            assert len(sampling_params) == len(images), "Length of sampling_params and images must match."
+        if isinstance(prompts, str):
+            prompts = [prompts] * len(images)
+
+        image_lists = [image_to_obj_list(image) for image in images]
+
+        # Build score prompts and get scored token counts
+        chat_prompts: list[str] = []
+        scored_token_counts: list[int] = []
+        for prompt, image_list, scored_text in zip(prompts, image_lists, scored_texts):
+            full_prompt, scored_token_count = self._build_score_prompt_pair(prompt, image_list, scored_text)
+            chat_prompts.append(full_prompt)
+            scored_token_counts.append(scored_token_count)
+
+        if not isinstance(sampling_params, Sequence):
+            vllm_sp_list = [self.build_vllm_sampling_params(sampling_params)] * len(images)
+        else:
+            vllm_sp_list = [self.build_vllm_sampling_params(sp) for sp in sampling_params]
+
+        # Enable prompt_logprobs and minimize generation
+        for vllm_sp in vllm_sp_list:
+            vllm_sp.prompt_logprobs = 0
+            vllm_sp.max_tokens = 1
+
+        results: list[ScoredOutput] = []
+        batch_size = self.batch_size if self.batch_size > 0 else len(images)
+        batch_size = max(1, batch_size)
+
+        for i in range(0, len(images), batch_size):
+            batch_image_lists = image_lists[i : i + batch_size]
+            batch_chat_prompts = chat_prompts[i : i + batch_size]
+            batch_sp_list = vllm_sp_list[i : i + batch_size]
+            batch_scored_texts = scored_texts[i : i + batch_size]
+            batch_scored_token_counts = scored_token_counts[i : i + batch_size]
+
+            vllm_prompts = [
+                {"prompt": chat_prompt, **({"multi_modal_data": {"image": image}} if image else {})}
+                for chat_prompt, image in zip(batch_chat_prompts, batch_image_lists)
+            ]
+
+            outputs = self.vllm_llm.generate(
+                prompts=vllm_prompts,  # type: ignore
+                sampling_params=batch_sp_list,
+                use_tqdm=self.use_tqdm,
+            )
+
+            for output, scored_text, scored_token_count in zip(outputs, batch_scored_texts, batch_scored_token_counts):
+                scored_output = self._extract_prompt_logprobs(output, scored_token_count, low_confidence_threshold)
+                scored_output.text = scored_text
+                results.append(scored_output)
+
+        return results
+
+    # --- async stubs (not supported for sync engine) ---
 
     async def aio_predict(
         self,
