@@ -1,8 +1,12 @@
 import asyncio
+import math
 from dataclasses import dataclass
-from typing import Literal, Sequence
+from typing import Literal, Sequence, TypeAlias
 
 from PIL import Image
+
+SingleImageType: TypeAlias = Image.Image | bytes | str
+ImageType: TypeAlias = SingleImageType | Sequence[SingleImageType] | None
 
 DEFAULT_SYSTEM_PROMPT = "You are a helpful assistant."
 DEFAULT_USER_PROMPT = "What is the text in the illustrate?"
@@ -30,6 +34,35 @@ class SamplingParams:
     repetition_penalty: float | None = None
     no_repeat_ngram_size: int | None = None
     max_new_tokens: int | None = None
+
+
+@dataclass
+class ScoredOutput:
+    """Output with confidence metrics.
+
+    Generation PPL: text is the model-generated text, logprobs/token_ids correspond to the generated token sequence.
+    Evaluation PPL: text is the input scored_text returned as-is, logprobs/token_ids correspond to that text's token sequence.
+    """
+
+    text: str
+    token_ids: list[int]
+    logprobs: list[float]
+    perplexity: float
+    min_logprob: float
+    logprob_std: float
+
+
+def compute_confidence_metrics(
+    logprobs: list[float],
+) -> tuple[float, float, float]:
+    """Compute confidence metrics. Returns (perplexity, min_logprob, logprob_std)."""
+    if not logprobs:
+        return (float("inf"), float("-inf"), 0.0)
+    perplexity = math.exp(-sum(logprobs) / len(logprobs))
+    min_lp = min(logprobs)
+    mean = sum(logprobs) / len(logprobs)
+    std = math.sqrt(sum((lp - mean) ** 2 for lp in logprobs) / len(logprobs))
+    return (perplexity, min_lp, std)
 
 
 class VlmClient:
@@ -102,7 +135,7 @@ class VlmClient:
 
     def predict(
         self,
-        image: Image.Image | bytes | str,
+        image: ImageType,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
@@ -111,7 +144,7 @@ class VlmClient:
 
     def batch_predict(
         self,
-        images: Sequence[Image.Image | bytes | str],
+        images: Sequence[ImageType],
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         priority: Sequence[int | None] | int | None = None,
@@ -120,7 +153,7 @@ class VlmClient:
 
     async def aio_predict(
         self,
-        image: Image.Image | bytes | str,
+        image: ImageType,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
@@ -129,7 +162,7 @@ class VlmClient:
 
     async def aio_batch_predict(
         self,
-        images: Sequence[Image.Image | bytes | str],
+        images: Sequence[ImageType],
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         priority: Sequence[int | None] | int | None = None,
@@ -138,6 +171,92 @@ class VlmClient:
         tqdm_desc: str | None = None,
     ) -> list[str]:
         raise NotImplementedError()
+
+    # --- scored predict (generation PPL) ---
+
+    def predict_scored(
+        self,
+        image: ImageType,
+        prompt: str = "",
+        sampling_params: SamplingParams | None = None,
+        priority: int | None = None,
+    ) -> ScoredOutput:
+        raise UnsupportedError(f"predict_scored() is not supported by {type(self).__name__}.")
+
+    def batch_predict_scored(
+        self,
+        images: Sequence[ImageType],
+        prompts: Sequence[str] | str = "",
+        sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
+        priority: Sequence[int | None] | int | None = None,
+    ) -> list[ScoredOutput]:
+        raise UnsupportedError(f"batch_predict_scored() is not supported by {type(self).__name__}.")
+
+    async def aio_predict_scored(
+        self,
+        image: ImageType,
+        prompt: str = "",
+        sampling_params: SamplingParams | None = None,
+        priority: int | None = None,
+    ) -> ScoredOutput:
+        raise UnsupportedError(f"aio_predict_scored() is not supported by {type(self).__name__}.")
+
+    async def aio_batch_predict_scored(
+        self,
+        images: Sequence[ImageType],
+        prompts: Sequence[str] | str = "",
+        sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
+        priority: Sequence[int | None] | int | None = None,
+        semaphore: asyncio.Semaphore | None = None,
+        use_tqdm: bool = False,
+        tqdm_desc: str | None = None,
+    ) -> list[ScoredOutput]:
+        raise UnsupportedError(f"aio_batch_predict_scored() is not supported by {type(self).__name__}.")
+
+    # --- score (evaluation PPL / teacher forcing) ---
+
+    def score(
+        self,
+        image: ImageType,
+        scored_text: str,
+        prompt: str = "",
+        sampling_params: SamplingParams | None = None,
+        priority: int | None = None,
+    ) -> ScoredOutput:
+        raise UnsupportedError(f"score() is not supported by {type(self).__name__}.")
+
+    def batch_score(
+        self,
+        images: Sequence[ImageType],
+        scored_texts: Sequence[str],
+        prompts: Sequence[str] | str = "",
+        sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
+        priority: Sequence[int | None] | int | None = None,
+    ) -> list[ScoredOutput]:
+        raise UnsupportedError(f"batch_score() is not supported by {type(self).__name__}.")
+
+    async def aio_score(
+        self,
+        image: ImageType,
+        scored_text: str,
+        prompt: str = "",
+        sampling_params: SamplingParams | None = None,
+        priority: int | None = None,
+    ) -> ScoredOutput:
+        raise UnsupportedError(f"aio_score() is not supported by {type(self).__name__}.")
+
+    async def aio_batch_score(
+        self,
+        images: Sequence[ImageType],
+        scored_texts: Sequence[str],
+        prompts: Sequence[str] | str = "",
+        sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
+        priority: Sequence[int | None] | int | None = None,
+        semaphore: asyncio.Semaphore | None = None,
+        use_tqdm: bool = False,
+        tqdm_desc: str | None = None,
+    ) -> list[ScoredOutput]:
+        raise UnsupportedError(f"aio_batch_score() is not supported by {type(self).__name__}.")
 
 
 def new_vlm_client(

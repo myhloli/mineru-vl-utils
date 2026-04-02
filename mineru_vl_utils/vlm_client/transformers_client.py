@@ -9,7 +9,10 @@ from tqdm import tqdm
 from .base_client import (
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_USER_PROMPT,
+    ImageType,
     SamplingParams,
+    SingleImageType,
+    UnsupportedError,
     VlmClient,
 )
 from .utils import get_rgb_image, load_resource
@@ -111,7 +114,7 @@ class TransformersVlmClient(VlmClient):
 
     def predict(
         self,
-        image: Image.Image | bytes | str,
+        image: ImageType,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
@@ -126,7 +129,7 @@ class TransformersVlmClient(VlmClient):
 
     def batch_predict(
         self,
-        images: Sequence[Image.Image | bytes | str],
+        images: Sequence[ImageType],
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         priority: Sequence[int | None] | int | None = None,
@@ -141,6 +144,8 @@ class TransformersVlmClient(VlmClient):
 
         image_objs: list[Image.Image] = []
         for image in images:
+            if not isinstance(image, SingleImageType):
+                raise UnsupportedError("TransformersVlmClient haven't support non-single image yet.")
             if isinstance(image, str):
                 image = load_resource(image)
             if not isinstance(image, Image.Image):
@@ -178,7 +183,6 @@ class TransformersVlmClient(VlmClient):
         batch_size = max(1, self.batch_size)
 
         with tqdm(total=len(inputs), desc="Predict", disable=not self.use_tqdm) as pbar:
-
             # group inputs by sampling_params, because transformers
             # don't support different params in one batch.
             for params, group_inputs in groupby(inputs, key=lambda item: item[-1]):
@@ -241,7 +245,7 @@ class TransformersVlmClient(VlmClient):
 
     async def aio_predict(
         self,
-        image: Image.Image | bytes | str,
+        image: ImageType,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
@@ -255,7 +259,7 @@ class TransformersVlmClient(VlmClient):
 
     async def aio_batch_predict(
         self,
-        images: Sequence[Image.Image | bytes | str],
+        images: Sequence[ImageType],
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         priority: Sequence[int | None] | int | None = None,

@@ -4,14 +4,14 @@ import re
 from base64 import b64decode, b64encode
 from collections.abc import Coroutine
 from io import BytesIO
-from typing import Any, TypeVar
+from typing import Any, Sequence, TypeVar
 
 import aiofiles
 import httpx
 from PIL import Image
 from tqdm import tqdm
 
-from .base_client import RequestError
+from .base_client import ImageType, RequestError, SingleImageType
 
 T = TypeVar("T")
 
@@ -86,6 +86,66 @@ def get_rgb_image(image: Image.Image) -> Image.Image:
     if image.mode != "RGB":
         image = image.convert("RGB")
     return image
+
+
+def image_to_seq(image: ImageType) -> Sequence[SingleImageType]:
+    if image is None:
+        image = []
+    elif isinstance(image, SingleImageType):
+        image = [image]
+    return image
+
+
+def image_to_obj_list(image: ImageType) -> list[Image.Image]:
+    image_objs: list[Image.Image] = []
+    for image_item in image_to_seq(image):
+        if isinstance(image_item, str):
+            image_item = load_resource(image_item)
+        if not isinstance(image_item, Image.Image):
+            image_item = Image.open(BytesIO(image_item))
+        image_item = get_rgb_image(image_item)
+        image_objs.append(image_item)
+    return image_objs
+
+
+async def aio_image_to_obj_list(image: ImageType) -> list[Image.Image]:
+    image_objs: list[Image.Image] = []
+    for image_item in image_to_seq(image):
+        if isinstance(image_item, str):
+            image_item = await aio_load_resource(image_item)
+        if not isinstance(image_item, Image.Image):
+            image_item = Image.open(BytesIO(image_item))
+        image_item = get_rgb_image(image_item)
+        image_objs.append(image_item)
+    return image_objs
+
+
+def image_to_bytes_list_and_format(image: ImageType):
+    image_bytes: list[bytes] = []
+    image_format: str | None = "png"
+    for image_item in image_to_seq(image):
+        if isinstance(image_item, Image.Image):
+            image_item = get_png_bytes(image_item)
+        else:  # image is not PIL Image
+            image_format = None
+        if isinstance(image_item, str):
+            image_item = load_resource(image_item)
+        image_bytes.append(image_item)
+    return image_bytes, image_format
+
+
+async def aio_image_to_bytes_list_and_format(image: ImageType):
+    image_bytes: list[bytes] = []
+    image_format: str | None = "png"
+    for image_item in image_to_seq(image):
+        if isinstance(image_item, Image.Image):
+            image_item = get_png_bytes(image_item)
+        else:  # image is not PIL Image
+            image_format = None
+        if isinstance(image_item, str):
+            image_item = await aio_load_resource(image_item)
+        image_bytes.append(image_item)
+    return image_bytes, image_format
 
 
 async def gather_tasks(

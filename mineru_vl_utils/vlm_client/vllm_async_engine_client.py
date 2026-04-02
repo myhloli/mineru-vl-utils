@@ -1,23 +1,26 @@
 import asyncio
 import uuid
-from io import BytesIO
 from typing import TYPE_CHECKING, Sequence
 
 if TYPE_CHECKING:
     from vllm.outputs import RequestOutput
 
-from PIL import Image
-
 from .base_client import (
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_USER_PROMPT,
+    ImageType,
     RequestError,
     SamplingParams,
+    ScoredOutput,
     ServerError,
     UnsupportedError,
     VlmClient,
+    compute_confidence_metrics,
 )
-from .utils import aio_load_resource, gather_tasks, get_rgb_image
+from .utils import aio_image_to_obj_list, gather_tasks
+from .vllm_engine_client import _patch_vllm_logprobs_overflow
+
+_patch_vllm_logprobs_overflow()
 
 
 class VllmAsyncEngineVlmClient(VlmClient):
@@ -67,26 +70,27 @@ class VllmAsyncEngineVlmClient(VlmClient):
         self.max_concurrency = max_concurrency
         self.debug = debug
 
-    def build_messages(self, prompt: str) -> list[dict]:
+    def build_messages(self, prompt: str, num_images: int) -> list[dict]:
         prompt = prompt or self.prompt
         messages = []
         if self.system_prompt:
             messages.append({"role": "system", "content": self.system_prompt})
         if "<image>" in prompt:
-            prompt_1, prompt_2 = prompt.split("<image>", 1)
-            user_messages = [
-                *([{"type": "text", "text": prompt_1}] if prompt_1.strip() else []),
-                {"type": "image"},
-                *([{"type": "text", "text": prompt_2}] if prompt_2.strip() else []),
-            ]
+            prompt_parts = prompt.split("<image>", num_images)
+            user_messages = []
+            for i in range(max(len(prompt_parts), num_images)):
+                if i < len(prompt_parts) and prompt_parts[i]:
+                    user_messages.append({"type": "text", "text": prompt_parts[i]})
+                if i < num_images:
+                    user_messages.append({"type": "image"})
         elif self.text_before_image:
             user_messages = [
                 {"type": "text", "text": prompt},
-                {"type": "image"},
+                *({"type": "image"} for _ in range(num_images)),
             ]
         else:  # image before text, which is the default behavior.
             user_messages = [
-                {"type": "image"},
+                *({"type": "image"} for _ in range(num_images)),
                 {"type": "text", "text": prompt},
             ]
         messages.append({"role": "user", "content": user_messages})
@@ -141,7 +145,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
 
     def predict(
         self,
-        image: Image.Image | bytes | str,
+        image: ImageType,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
@@ -154,7 +158,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
 
     def batch_predict(
         self,
-        images: Sequence[Image.Image | bytes | str],
+        images: Sequence[ImageType],
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         priority: Sequence[int | None] | int | None = None,
@@ -167,19 +171,15 @@ class VllmAsyncEngineVlmClient(VlmClient):
 
     async def aio_predict(
         self,
-        image: Image.Image | bytes | str,
+        image: ImageType,
         prompt: str = "",
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
     ) -> str:
-        if isinstance(image, str):
-            image = await aio_load_resource(image)
-        if not isinstance(image, Image.Image):
-            image = Image.open(BytesIO(image))
-        image = get_rgb_image(image)
+        image = await aio_image_to_obj_list(image)
 
         chat_prompt: str = self.tokenizer.apply_chat_template(
-            self.build_messages(prompt),  # type: ignore
+            self.build_messages(prompt, len(image)),
             tokenize=False,
             add_generation_prompt=True,
         )
@@ -192,7 +192,10 @@ class VllmAsyncEngineVlmClient(VlmClient):
 
         last_output = None
         async for output in self.vllm_async_llm.generate(
-            prompt={"prompt": chat_prompt, "multi_modal_data": {"image": image}},
+            prompt={
+                "prompt": chat_prompt,
+                **({"multi_modal_data": {"image": image}} if image else {}),
+            },
             sampling_params=vllm_sp,
             request_id=str(uuid.uuid4()),
             **generate_kwargs,
@@ -206,7 +209,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
 
     async def aio_batch_predict(
         self,
-        images: Sequence[Image.Image | bytes | str],
+        images: Sequence[ImageType],
         prompts: Sequence[str] | str = "",
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         priority: Sequence[int | None] | int | None = None,
@@ -229,7 +232,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
             semaphore = asyncio.Semaphore(self.max_concurrency)
 
         async def predict_with_semaphore(
-            image: Image.Image | bytes | str,
+            image: ImageType,
             prompt: str,
             sampling_params: SamplingParams | None,
             priority: int | None,
@@ -247,6 +250,261 @@ class VllmAsyncEngineVlmClient(VlmClient):
                 predict_with_semaphore(*args)
                 for args in zip(
                     images,
+                    prompts,
+                    sampling_params,
+                    priority,
+                )
+            ],
+            use_tqdm=use_tqdm,
+            tqdm_desc=tqdm_desc,
+        )
+
+    # --- scored predict (generation PPL) ---
+
+    def _get_output_scored(self, output: "RequestOutput") -> ScoredOutput:
+        text = self.get_output_content(output)
+        choice = output.outputs[0]
+        token_ids = list(choice.token_ids)
+        logprobs_list: list[float] = []
+        for i, tid in enumerate(token_ids):
+            lp_dict = choice.logprobs[i]
+            logprobs_list.append(lp_dict[tid].logprob)
+        ppl, min_lp, std = compute_confidence_metrics(logprobs_list)
+        return ScoredOutput(
+            text=text,
+            token_ids=token_ids,
+            logprobs=logprobs_list,
+            perplexity=ppl,
+            min_logprob=min_lp,
+            logprob_std=std,
+        )
+
+    async def aio_predict_scored(
+        self,
+        image: ImageType,
+        prompt: str = "",
+        sampling_params: SamplingParams | None = None,
+        priority: int | None = None,
+    ) -> ScoredOutput:
+        image = await aio_image_to_obj_list(image)
+
+        chat_prompt: str = self.tokenizer.apply_chat_template(
+            self.build_messages(prompt, len(image)),
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+
+        vllm_sp = self.build_vllm_sampling_params(sampling_params)
+        vllm_sp.logprobs = 0
+
+        generate_kwargs = {}
+        if priority is not None:
+            generate_kwargs["priority"] = priority
+
+        last_output = None
+        async for output in self.vllm_async_llm.generate(
+            prompt={
+                "prompt": chat_prompt,
+                **({"multi_modal_data": {"image": image}} if image else {}),
+            },
+            sampling_params=vllm_sp,
+            request_id=str(uuid.uuid4()),
+            **generate_kwargs,
+        ):
+            last_output = output
+
+        if last_output is None:
+            raise ServerError("No output from the server.")
+
+        return self._get_output_scored(last_output)
+
+    async def aio_batch_predict_scored(
+        self,
+        images: Sequence[ImageType],
+        prompts: Sequence[str] | str = "",
+        sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
+        priority: Sequence[int | None] | int | None = None,
+        semaphore: asyncio.Semaphore | None = None,
+        use_tqdm: bool = False,
+        tqdm_desc: str | None = None,
+    ) -> list[ScoredOutput]:
+        if isinstance(prompts, str):
+            prompts = [prompts] * len(images)
+        if not isinstance(sampling_params, Sequence):
+            sampling_params = [sampling_params] * len(images)
+        if not isinstance(priority, Sequence):
+            priority = [priority] * len(images)
+
+        assert len(prompts) == len(images), "Length of prompts and images must match."
+        assert len(sampling_params) == len(images), "Length of sampling_params and images must match."
+        assert len(priority) == len(images), "Length of priority and images must match."
+
+        if semaphore is None:
+            semaphore = asyncio.Semaphore(self.max_concurrency)
+
+        async def predict_scored_with_semaphore(
+            image: ImageType,
+            prompt: str,
+            sp: SamplingParams | None,
+            prio: int | None,
+        ):
+            async with semaphore:
+                return await self.aio_predict_scored(
+                    image=image,
+                    prompt=prompt,
+                    sampling_params=sp,
+                    priority=prio,
+                )
+
+        return await gather_tasks(
+            tasks=[predict_scored_with_semaphore(*args) for args in zip(images, prompts, sampling_params, priority)],
+            use_tqdm=use_tqdm,
+            tqdm_desc=tqdm_desc,
+        )
+
+    # --- score (evaluation PPL / teacher forcing) ---
+
+    def _build_score_prompt_pair(self, prompt: str, num_images: int, scored_text: str) -> tuple[str, int]:
+        """Build prompt for scoring. Returns (full_prompt, scored_token_count)."""
+        messages = self.build_messages(prompt, num_images)
+
+        messages_with_assistant = messages + [{"role": "assistant", "content": scored_text}]
+        full_prompt: str = self.tokenizer.apply_chat_template(
+            messages_with_assistant, tokenize=False, add_generation_prompt=False
+        )
+
+        base_prompt: str = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+
+        full_token_ids = self.tokenizer.encode(full_prompt)
+        base_token_ids = self.tokenizer.encode(base_prompt)
+        scored_token_count = len(full_token_ids) - len(base_token_ids)
+        if scored_token_count <= 0:
+            raise RequestError(f"scored_text tokenizes to {scored_token_count} tokens, expected > 0.")
+
+        return full_prompt, scored_token_count
+
+    def _extract_prompt_logprobs(self, output: "RequestOutput", scored_token_count: int) -> ScoredOutput:
+        prompt_logprobs = output.prompt_logprobs
+        prompt_token_ids = output.prompt_token_ids
+
+        token_ids: list[int] = []
+        logprobs_list: list[float] = []
+
+        start_idx = len(prompt_token_ids) - scored_token_count
+        for i in range(start_idx, len(prompt_token_ids)):
+            tid = prompt_token_ids[i]
+            lp_dict = prompt_logprobs[i]
+            if lp_dict is None:
+                continue
+            token_ids.append(tid)
+            if tid in lp_dict:
+                logprobs_list.append(lp_dict[tid].logprob)
+            elif i > 0 and prompt_token_ids[i - 1] in lp_dict:
+                # vLLM v1 async engine bug (chunked prefill): prompt_logprobs dict
+                # key is off-by-one — stores ptids[i-1] instead of ptids[i] as key.
+                # The logprob VALUE is still P(ptids[i]|context), just the key is wrong.
+                logprobs_list.append(lp_dict[prompt_token_ids[i - 1]].logprob)
+            else:
+                # ultimate fallback: take whichever single logprob is in the dict
+                logprobs_list.append(next(iter(lp_dict.values())).logprob)
+
+        ppl, min_lp, std = compute_confidence_metrics(logprobs_list)
+        return ScoredOutput(
+            text="",  # placeholder, caller sets this
+            token_ids=token_ids,
+            logprobs=logprobs_list,
+            perplexity=ppl,
+            min_logprob=min_lp,
+            logprob_std=std,
+        )
+
+    async def aio_score(
+        self,
+        image: ImageType,
+        scored_text: str,
+        prompt: str = "",
+        sampling_params: SamplingParams | None = None,
+        priority: int | None = None,
+    ) -> ScoredOutput:
+        image_list = await aio_image_to_obj_list(image)
+
+        full_prompt, scored_token_count = self._build_score_prompt_pair(prompt, len(image_list), scored_text)
+
+        vllm_sp = self.build_vllm_sampling_params(sampling_params)
+        vllm_sp.prompt_logprobs = 0
+        vllm_sp.max_tokens = 1
+
+        generate_kwargs = {}
+        if priority is not None:
+            generate_kwargs["priority"] = priority
+
+        last_output = None
+        async for output in self.vllm_async_llm.generate(
+            prompt={
+                "prompt": full_prompt,
+                **({"multi_modal_data": {"image": image_list}} if image_list else {}),
+            },
+            sampling_params=vllm_sp,
+            request_id=str(uuid.uuid4()),
+            **generate_kwargs,
+        ):
+            last_output = output
+
+        if last_output is None:
+            raise ServerError("No output from the server.")
+
+        scored_output = self._extract_prompt_logprobs(last_output, scored_token_count)
+        scored_output.text = scored_text
+        return scored_output
+
+    async def aio_batch_score(
+        self,
+        images: Sequence[ImageType],
+        scored_texts: Sequence[str],
+        prompts: Sequence[str] | str = "",
+        sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
+        priority: Sequence[int | None] | int | None = None,
+        semaphore: asyncio.Semaphore | None = None,
+        use_tqdm: bool = False,
+        tqdm_desc: str | None = None,
+    ) -> list[ScoredOutput]:
+        assert len(scored_texts) == len(images), "Length of scored_texts and images must match."
+        if isinstance(prompts, str):
+            prompts = [prompts] * len(images)
+        if not isinstance(sampling_params, Sequence):
+            sampling_params = [sampling_params] * len(images)
+        if not isinstance(priority, Sequence):
+            priority = [priority] * len(images)
+
+        assert len(prompts) == len(images), "Length of prompts and images must match."
+        assert len(sampling_params) == len(images), "Length of sampling_params and images must match."
+        assert len(priority) == len(images), "Length of priority and images must match."
+
+        if semaphore is None:
+            semaphore = asyncio.Semaphore(self.max_concurrency)
+
+        async def score_with_semaphore(
+            image: ImageType,
+            scored_text: str,
+            prompt: str,
+            sp: SamplingParams | None,
+            prio: int | None,
+        ):
+            async with semaphore:
+                return await self.aio_score(
+                    image=image,
+                    scored_text=scored_text,
+                    prompt=prompt,
+                    sampling_params=sp,
+                    priority=prio,
+                )
+
+        return await gather_tasks(
+            tasks=[
+                score_with_semaphore(*args)
+                for args in zip(
+                    images,
+                    scored_texts,
                     prompts,
                     sampling_params,
                     priority,
