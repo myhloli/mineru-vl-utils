@@ -43,6 +43,8 @@ class MinerUSamplingParams(SamplingParams):
 DEFAULT_PROMPTS: dict[str, str] = {
     "table": "\nTable Recognition:",
     "equation": "\nFormula Recognition:",
+    "image": "\nImage Analysis:",
+    "chart": "\nImage Analysis:",
     "[default]": "\nText Recognition:",
     "[layout]": "\nLayout Detection:",
 }
@@ -50,6 +52,8 @@ DEFAULT_PROMPTS: dict[str, str] = {
 DEFAULT_SAMPLING_PARAMS: dict[str, SamplingParams] = {
     "table": MinerUSamplingParams(presence_penalty=1.0, frequency_penalty=0.005),
     "equation": MinerUSamplingParams(presence_penalty=1.0, frequency_penalty=0.05),
+    "image": MinerUSamplingParams(presence_penalty=1.0, frequency_penalty=0.05),
+    "chart": MinerUSamplingParams(presence_penalty=1.0, frequency_penalty=0.05),
     "[default]": MinerUSamplingParams(presence_penalty=1.0, frequency_penalty=0.05),
     "[layout]": MinerUSamplingParams(),
 }
@@ -94,6 +98,7 @@ class MinerUClientHelper:
         handle_equation_block: bool,
         abandon_list: bool,
         abandon_paratext: bool,
+        image_analysis: bool,
         debug: bool,
     ) -> None:
         self.backend = backend
@@ -106,6 +111,7 @@ class MinerUClientHelper:
         self.handle_equation_block = handle_equation_block
         self.abandon_list = abandon_list
         self.abandon_paratext = abandon_paratext
+        self.image_analysis = image_analysis
         self.debug = debug
 
     def resize_by_need(self, image: Image.Image) -> Image.Image:
@@ -166,7 +172,9 @@ class MinerUClientHelper:
         prompts: list[str] = []
         sampling_params: list[SamplingParams | None] = []
         indices: list[int] = []
-        skip_list = {"image", "list", "equation_block"}
+        skip_list = {"list", "equation_block"}
+        if not self.image_analysis:
+            skip_list.update({"image", "chart"})
         if not_extract_list:
             for not_extract_type in not_extract_list:
                 if not_extract_type in BLOCK_TYPES:
@@ -310,6 +318,7 @@ class MinerUClient:
         handle_equation_block: bool = True,
         abandon_list: bool = False,
         abandon_paratext: bool = False,
+        image_analysis: bool = False,
         incremental_priority: bool = False,
         max_concurrency: int = 100,
         executor: Executor | None = None,
@@ -445,6 +454,7 @@ class MinerUClient:
             handle_equation_block=handle_equation_block,
             abandon_list=abandon_list,
             abandon_paratext=abandon_paratext,
+            image_analysis=image_analysis,
             debug=debug,
         )
         self.backend = backend
