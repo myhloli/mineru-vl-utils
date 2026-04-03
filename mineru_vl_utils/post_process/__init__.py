@@ -7,6 +7,13 @@ from .equation_left_right import try_match_equation_left_right
 from .equation_leq import try_fix_equation_leq
 from .equation_unbalanced_braces import try_fix_unbalanced_braces
 from .otsl2html import convert_otsl_to_html
+from .table_image_processor import (
+    cleanup_table_image_metadata,
+    is_absorbed_table_image,
+    replace_table_formula_delimiters,
+    replace_table_image_tokens,
+    TABLE_IMAGE_TOKEN_MAP_KEY,
+)
 
 PARATEXT_TYPES = {
     "header",
@@ -37,15 +44,26 @@ def _add_equation_brackets(content: str) -> str:
     return content
 
 
-def simple_process(blocks: list[ContentBlock]) -> list[ContentBlock]:
+def simple_process(
+    blocks: list[ContentBlock],
+    enable_table_formula_eq_wrap: bool = False,
+) -> list[ContentBlock]:
     for block in blocks:
         if block.type == "table" and block.content:
+            content = block.content
             try:
-                block.content = convert_otsl_to_html(block.content)
+                content = convert_otsl_to_html(content)
             except Exception as e:
                 print("Warning: Failed to convert OTSL to HTML: ", e)
                 print("Content: ", block.content)
+            content = replace_table_image_tokens(content, block.get(TABLE_IMAGE_TOKEN_MAP_KEY))
+            block.content = replace_table_formula_delimiters(content, enabled=enable_table_formula_eq_wrap)
     return blocks
+
+
+def _finalize_simple_blocks(blocks: list[ContentBlock]) -> list[ContentBlock]:
+    out_blocks = [block for block in blocks if not (block.type == "image" and is_absorbed_table_image(block))]
+    return cleanup_table_image_metadata(out_blocks)
 
 
 def post_process(
@@ -54,12 +72,13 @@ def post_process(
     handle_equation_block: bool,
     abandon_list: bool,
     abandon_paratext: bool,
+    enable_table_formula_eq_wrap: bool = False,
     debug: bool = False,
 ) -> list[ContentBlock]:
-    blocks = simple_process(blocks)
+    blocks = simple_process(blocks, enable_table_formula_eq_wrap=enable_table_formula_eq_wrap)
 
     if simple_post_process:
-        return blocks
+        return _finalize_simple_blocks(blocks)
 
     for block in blocks:
         if block.type == "equation" and block.content:
@@ -80,10 +99,12 @@ def post_process(
     for block in blocks:
         if block.type == "equation_block":  # drop equation_block anyway
             continue
+        if block.type == "image" and is_absorbed_table_image(block):
+            continue
         if abandon_list and block.type == "list":
             continue
         if abandon_paratext and block.type in PARATEXT_TYPES:
             continue
         out_blocks.append(block)
 
-    return out_blocks
+    return cleanup_table_image_metadata(out_blocks)
