@@ -144,7 +144,7 @@ def _pil_image_to_jpg_data_uri(image: Image.Image) -> str:
     with BytesIO() as buffer:
         image.save(buffer, format="JPEG")
         payload = base64.b64encode(buffer.getvalue()).decode("ascii")
-    return f"data:image/jpg;base64,{payload}"
+    return f"data:image/jpeg;base64,{payload}"
 
 
 def build_table_image_map(
