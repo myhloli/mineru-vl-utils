@@ -203,6 +203,7 @@ class MinerUClientHelper:
                 continue  # Skip blocks that should not be extracted.
             if block.type == "image" and is_absorbed_table_image(block):
                 continue
+            table_image_prepared = False
             x1, y1, x2, y2 = block.bbox
             scaled_bbox = (x1 * width, y1 * height, x2 * width, y2 * height)
             block_image = image.crop(scaled_bbox)
@@ -211,12 +212,12 @@ class MinerUClientHelper:
                 continue
             if block.type == "table":
                 image_indices = table_to_images.get(idx, [])
-                if image_indices:
-                    image_entries = [(image_idx, blocks[image_idx]) for image_idx in image_indices]
-                    block_image, token_map = mask_and_encode_table_image(image, block, image_entries, block_image)
-                    if token_map:
-                        block[TABLE_IMAGE_TOKEN_MAP_KEY] = token_map
-            if block.angle in [90, 180, 270]:
+                image_entries = [(image_idx, blocks[image_idx]) for image_idx in image_indices]
+                block_image, token_map = mask_and_encode_table_image(image, block, image_entries, block_image)
+                table_image_prepared = True
+                if token_map:
+                    block[TABLE_IMAGE_TOKEN_MAP_KEY] = token_map
+            if not table_image_prepared and block.angle in [90, 180, 270]:
                 block_image = block_image.rotate(block.angle, expand=True)
             block_image = self.resize_by_need(block_image)
             if self.backend == "http-client":

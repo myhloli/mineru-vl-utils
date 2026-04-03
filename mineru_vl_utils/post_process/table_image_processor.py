@@ -20,6 +20,34 @@ TABLE_IMAGE_TOKEN_MAP_KEY = "_table_image_token_map"
 TABLE_IMAGE_ABSORBED_KEY = "_absorbed_by_table"
 
 
+def _normalize_rotation_angle(angle: int | None) -> int:
+    return angle if angle in {90, 180, 270} else 0
+
+
+def _rotate_image_by_angle(image: Image.Image, angle: int | None) -> Image.Image:
+    normalized_angle = _normalize_rotation_angle(angle)
+    if normalized_angle == 0:
+        return image
+    return image.rotate(normalized_angle, expand=True)
+
+
+def _rotate_box_in_image(
+    box: tuple[int, int, int, int],
+    image_size: tuple[int, int],
+    angle: int | None,
+) -> tuple[int, int, int, int]:
+    x1, y1, x2, y2 = box
+    width, height = image_size
+    normalized_angle = _normalize_rotation_angle(angle)
+    if normalized_angle == 0:
+        return box
+    if normalized_angle == 90:
+        return (y1, width - x2, y2, width - x1)
+    if normalized_angle == 180:
+        return (width - x2, height - y2, width - x1, height - y1)
+    return (height - y2, x1, height - y1, x2)
+
+
 def _load_font(size: int):
     for path in FONT_PATH_CANDIDATES:
         try:
@@ -248,16 +276,13 @@ def mask_and_encode_table_image(
     image_entries: Sequence[tuple[int, ContentBlock]],
     table_image: Image.Image,
 ) -> tuple[Image.Image, dict[str, str]]:
-    if not image_entries:
-        return table_image, {}
-
     width, height = page_image.size
     x1_t, y1_t, _, _ = table_block.bbox
-    abs_x1_t = x1_t * width
-    abs_y1_t = y1_t * height
-    masked_table_image = table_image.copy()
+    abs_x1_t = int(x1_t * width)
+    abs_y1_t = int(y1_t * height)
+    original_table_size = table_image.size
+    masked_table_image = _rotate_image_by_angle(table_image.copy(), table_block.angle)
     draw = ImageDraw.Draw(masked_table_image)
-    table_w, table_h = masked_table_image.size
     token_map: dict[str, str] = {}
     token_codes = _iter_token_codes()
     font_cache: dict[tuple[int, int], tuple[ImageFont.FreeTypeFont | ImageFont.ImageFont, int, int]] = {}
@@ -292,10 +317,10 @@ def mask_and_encode_table_image(
         abs_ix2 = ix2 * width
         abs_iy2 = iy2 * height
 
-        rel_x1 = int(max(0, abs_ix1 - int(abs_x1_t)))
-        rel_y1 = int(max(0, abs_iy1 - int(abs_y1_t)))
-        rel_x2 = int(min(table_w, abs_ix2 - int(abs_x1_t)))
-        rel_y2 = int(min(table_h, abs_iy2 - int(abs_y1_t)))
+        rel_x1 = int(max(0, abs_ix1 - abs_x1_t))
+        rel_y1 = int(max(0, abs_iy1 - abs_y1_t))
+        rel_x2 = int(min(original_table_size[0], abs_ix2 - abs_x1_t))
+        rel_y2 = int(min(original_table_size[1], abs_iy2 - abs_y1_t))
         if rel_x2 <= rel_x1 or rel_y2 <= rel_y1:
             continue
 
@@ -305,18 +330,19 @@ def mask_and_encode_table_image(
             continue
 
         token_text = TABLE_IMAGE_TOKEN_TEMPLATE.format(idx=token_code)
-        token_map[token_text] = _pil_image_to_jpg_data_uri(crop_image)
+        rotated_crop_image = _rotate_image_by_angle(crop_image, table_block.angle)
+        token_map[token_text] = _pil_image_to_jpg_data_uri(rotated_crop_image)
 
-        image_mask_bbox = (rel_x1, rel_y1, rel_x2, rel_y2)
+        image_mask_bbox = _rotate_box_in_image((rel_x1, rel_y1, rel_x2, rel_y2), original_table_size, table_block.angle)
         avg_color = _get_average_color(masked_table_image, image_mask_bbox)
-        draw.rectangle([rel_x1, rel_y1, rel_x2, rel_y2], fill=avg_color, outline=None)
+        draw.rectangle(image_mask_bbox, fill=avg_color, outline=None)
 
-        box_w = rel_x2 - rel_x1
-        box_h = rel_y2 - rel_y1
+        box_w = image_mask_bbox[2] - image_mask_bbox[0]
+        box_h = image_mask_bbox[3] - image_mask_bbox[1]
         font, text_w, text_h = get_font_for_box(box_w, box_h, token_text)
         if text_w <= box_w and text_h <= box_h:
-            center_x = rel_x1 + box_w / 2
-            center_y = rel_y1 + box_h / 2
+            center_x = image_mask_bbox[0] + box_w / 2
+            center_y = image_mask_bbox[1] + box_h / 2
             text_pos = (center_x - text_w / 2, center_y - text_h / 2)
             text_color = _get_contrast_text_color(avg_color)
             draw.text(text_pos, token_text, fill=text_color, font=font)
