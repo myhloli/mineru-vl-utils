@@ -102,6 +102,7 @@ class ContentBlock(dict):
         bbox: list[float],
         angle: Literal[None, 0, 90, 180, 270] = None,
         content: str | None = None,
+        merge_type: Literal[None, 'src', 'tgt'] = None,
     ):
         """
         Initialize a layout block.
@@ -121,13 +122,14 @@ class ContentBlock(dict):
         assert bbox[1] < bbox[3], "Bounding box y1 must be less than y2"
         assert angle in ANGLE_OPTIONS, f"Invalid angle: {angle}. Must be one of {ANGLE_OPTIONS}"
         assert content is None or isinstance(content, str), "Content must be a string or None"
-
+        assert merge_type is None or merge_type in {'src', 'tgt'}, f"Invalid merge type: {merge_type}. Must be one of {'src', 'tgt'} or None"
         self["type"] = type
         self["bbox"] = bbox
         self["angle"] = angle
         self["content"] = content
+        self["merge_type"] = merge_type
         self["scored"] = None
-
+        
     @property
     def type(self) -> str:
         return self["type"]
@@ -167,6 +169,15 @@ class ContentBlock(dict):
     def content(self, value: str | None):
         assert value is None or isinstance(value, str), "Content must be a string or None"
         self["content"] = value
+
+    @property
+    def merge_type(self) -> Literal[None, 'src', 'tgt']:
+        return self["merge_type"]
+
+    @merge_type.setter
+    def merge_type(self, value: Literal[None, 'src', 'tgt']):
+        assert value is None or value in {'src', 'tgt'}, f"Invalid merge type: {value}. Must be one of {'src', 'tgt'} or None"
+        self["merge_type"] = value
 
     @property
     def scored(self) -> ScoredOutput | None:
