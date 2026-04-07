@@ -405,12 +405,8 @@ class MinerUClient:
             if model is None or processor is None:
                 if not model_path:
                     raise ValueError("model_path must be provided when model or processor is None.")
-
-                try:
-                    from mlx_vlm import load as mlx_load
-                except ImportError:
-                    raise ImportError("Please install mlx-vlm to use the mlx-engine backend.")
-                model, processor = mlx_load(model_path)
+                from mineru_vl_utils.mlx_compat import load_mlx_model
+                model, processor = load_mlx_model(model_path)
 
         elif backend == "lmdeploy-engine":
             if lmdeploy_engine is None:
