@@ -23,7 +23,8 @@ from .vlm_client.utils import gather_tasks, get_png_bytes, get_rgb_image
 
 _layout_re = (
     r"<\|box_start\|>(\d+)\s+(\d+)\s+(\d+)\s+(\d+)"
-    r"<\|box_end\|><\|ref_start\|>(\w+?)<\|ref_end\|>(.*?)(?=<\|box_start\|>|$)"
+    r"<\|box_end\|><\|ref_start\|>(\w+?)<\|ref_end\|>"
+    r"<\|rotate_(up|right|down|left)\|>(.*?)(?=<\|box_start\|>|$)"
 )
 
 
@@ -95,6 +96,13 @@ def _parse_angle(tail: str) -> Literal[None, 0, 90, 180, 270]:
             return angle
     return None
 
+def _parse_merge_type(tail: str) -> Literal[None, 'src', 'tgt']:
+    if "txt_contd_src" in tail:
+        return "src"
+    elif "txt_contd_tgt" in tail:
+        return "tgt"
+    return None
+
 
 class MinerUClientHelper:
     def __init__(
@@ -156,7 +164,7 @@ class MinerUClientHelper:
         matched = False
         for match in re.finditer(_layout_re, output, re.DOTALL):
             matched = True
-            x1, y1, x2, y2, ref_type, tail = match.groups()
+            x1, y1, x2, y2, ref_type, angle, tail = match.groups()
             bbox = _convert_bbox((x1, y1, x2, y2))
             if bbox is None:
                 print(f"Warning: invalid bbox in line: {match.group(0)}")
@@ -165,10 +173,11 @@ class MinerUClientHelper:
             if ref_type not in BLOCK_TYPES:
                 print(f"Warning: unknown block type in line: {match.group(0)}")
                 continue  # Skip unknown block types
-            angle = _parse_angle(tail)
+            angle = _parse_angle(f"<|rotate_{angle}|>")
             if angle is None:
                 print(f"Warning: no angle found in line: {match.group(0)}")
-            blocks.append(ContentBlock(ref_type, bbox, angle=angle))
+            merge_type = _parse_merge_type(tail)
+            blocks.append(ContentBlock(ref_type, bbox, angle=angle, merge_type=merge_type))
         if not matched and output.strip():
             print(f"Warning: output does not match layout format: {output}")
         return blocks
