@@ -8,10 +8,13 @@ from PIL import Image, ImageDraw, ImageFont
 from ..structs import ContentBlock
 
 FONT_PATH_CANDIDATES = [
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    "/System/Library/Fonts/Supplemental/Arial.ttf",
-    "arial.ttf",
+    "C:/Windows/Fonts/arial.ttf",                         # Windows
+    "/System/Library/Fonts/Supplemental/Arial.ttf",      # macOS
+    "/Library/Fonts/Arial.ttf",                           # macOS 备选
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",   # Linux
+    "/usr/share/fonts/dejavu/DejaVuSans.ttf",            # Linux 备选
 ]
+
 
 TABLE_IMAGE_TOKEN_TEMPLATE = "[{idx}]"
 TABLE_IMAGE_TOKEN_LETTERS = "ACDGHKTWXYZ"
@@ -54,7 +57,10 @@ def _load_font(size: int):
             return ImageFont.truetype(path, size=size)
         except OSError:
             continue
-    return ImageFont.load_default()
+    try:
+        return ImageFont.load_default(size=size)
+    except TypeError:
+        return ImageFont.load_default()
 
 
 def _get_optimal_pil_font(
