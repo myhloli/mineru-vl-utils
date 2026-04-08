@@ -24,7 +24,8 @@ from .vlm_client.utils import gather_tasks, get_png_bytes, get_rgb_image
 _layout_re = (
     r"<\|box_start\|>(\d+)\s+(\d+)\s+(\d+)\s+(\d+)"
     r"<\|box_end\|><\|ref_start\|>(\w+?)<\|ref_end\|>"
-    r"<\|rotate_(up|right|down|left)\|>(.*?)(?=<\|box_start\|>|$)"
+    r"(?:(<\|rotate_(?:up|right|down|left)\|>))?"
+    r"(.*?)(?=<\|box_start\|>|$)"
 )
 
 
@@ -96,6 +97,7 @@ def _parse_angle(tail: str) -> Literal[None, 0, 90, 180, 270]:
             return angle
     return None
 
+
 def _parse_merge_type(tail: str) -> Literal[None, 'src', 'tgt']:
     if "txt_contd_src" in tail:
         return "src"
@@ -164,7 +166,7 @@ class MinerUClientHelper:
         matched = False
         for match in re.finditer(_layout_re, output, re.DOTALL):
             matched = True
-            x1, y1, x2, y2, ref_type, angle, tail = match.groups()
+            x1, y1, x2, y2, ref_type, rotate_token, tail = match.groups()
             bbox = _convert_bbox((x1, y1, x2, y2))
             if bbox is None:
                 print(f"Warning: invalid bbox in line: {match.group(0)}")
@@ -173,7 +175,7 @@ class MinerUClientHelper:
             if ref_type not in BLOCK_TYPES:
                 print(f"Warning: unknown block type in line: {match.group(0)}")
                 continue  # Skip unknown block types
-            angle = _parse_angle(f"<|rotate_{angle}|>")
+            angle = _parse_angle(rotate_token) if rotate_token else None
             if angle is None:
                 print(f"Warning: no angle found in line: {match.group(0)}")
             merge_type = _parse_merge_type(tail)
