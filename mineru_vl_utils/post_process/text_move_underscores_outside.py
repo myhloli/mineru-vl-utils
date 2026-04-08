@@ -27,6 +27,6 @@ def try_move_underscores_outside(text: str, debug: bool = False) -> str:
 
 if __name__ == "__main__":
     # text = r"(13) 设  \( z = \left(\frac{y}{x}\right)^{\frac{x}{y}} \) ，则  \( \frac{\partial z}{\partial x}\bigg|_{(1,2)} = ____ \) ."
-    # text = r"xxx = \( ___ = \lambda \)"
+    text = r"xxx = \( \sigma ___ = \lambda \)"
     
     print(try_move_underscores_outside(text))

@@ -22,7 +22,7 @@ def try_fix_macro_spacing_in_markdown(text, debug: bool = False) -> str:
     只处理 \\( ... \\) 包裹的公式部分，普通文本不动。
     """
     
-    known_macros = {r'\top', r'\int'}
+    known_macros = {r'\top', r'\int', r'\inf'}
     target_macros = [r'\cong', r'\to', r'\times', r'\subset', r'\in']
     
     result = []

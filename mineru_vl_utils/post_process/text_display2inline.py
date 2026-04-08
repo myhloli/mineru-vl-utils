@@ -2,7 +2,14 @@ import re
 
 def try_convert_display_to_inline(text: str, debug: bool = False) -> str:
     
-    new_text = re.sub(r'\\\[(.+?)\\\]', r'\\(\1\\)', text, flags=re.DOTALL)
+    def replace(m):
+        inner = m.group(1)
+        if re.fullmatch(r'[–\d\-,\s]+', inner):
+            return r'\[' + inner + r'\]'
+        else:
+            return r'\(' + inner + r'\)'
+
+    new_text = re.sub(r'\\\[(.*?)\\\]', replace, text, flags=re.DOTALL)
     
     if debug and new_text != text:
         print(f"Fixed equation delimeters from: {text} to: {new_text}")
