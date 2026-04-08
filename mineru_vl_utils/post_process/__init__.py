@@ -76,9 +76,9 @@ def post_process(
                 
         elif block.type == "text" and block.content:
             try:
+                block.content = try_convert_display_to_inline(block.content, debug=debug)
                 block.content = try_fix_macro_spacing_in_markdown(block.content, debug=debug)
                 block.content = try_move_underscores_outside(block.content, debug=debug)
-                block.content = try_convert_display_to_inline(block.content, debug=debug)
             except Exception as e:
                 print("Warning: Failed to process text: ", e)
                 print("Content: ", block.content)
