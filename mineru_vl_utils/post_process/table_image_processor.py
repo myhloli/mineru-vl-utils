@@ -1,4 +1,5 @@
 import base64
+import random
 import re
 from io import BytesIO
 from typing import Sequence
@@ -19,6 +20,8 @@ FONT_PATH_CANDIDATES = [
 TABLE_IMAGE_TOKEN_TEMPLATE = "[{idx}]"
 TABLE_IMAGE_TOKEN_LETTERS = "ACDGHKTWXYZ"
 TABLE_IMAGE_TOKEN_NUMBERS = "2345678"
+TABLE_IMAGE_TOKEN_LENGTH = 4
+TABLE_IMAGE_TOKEN_CHARS = TABLE_IMAGE_TOKEN_LETTERS + TABLE_IMAGE_TOKEN_NUMBERS
 TABLE_IMAGE_TOKEN_MAP_KEY = "_table_image_token_map"
 TABLE_IMAGE_ABSORBED_KEY = "_absorbed_by_table"
 
@@ -166,12 +169,8 @@ def _table_area(block: ContentBlock) -> float:
     return _bbox_area(block.bbox)
 
 
-def _iter_token_codes():
-    for first in TABLE_IMAGE_TOKEN_LETTERS:
-        for second in TABLE_IMAGE_TOKEN_LETTERS:
-            for third in TABLE_IMAGE_TOKEN_NUMBERS:
-                for fourth in TABLE_IMAGE_TOKEN_NUMBERS:
-                    yield f"{first}{second}{third}{fourth}"
+def _generate_uid(length: int = TABLE_IMAGE_TOKEN_LENGTH) -> str:
+    return "".join(random.choices(TABLE_IMAGE_TOKEN_CHARS, k=length))
 
 
 def _pil_image_to_jpg_data_uri(image: Image.Image) -> str:
@@ -290,7 +289,8 @@ def mask_and_encode_table_image(
     masked_table_image = _rotate_image_by_angle(table_image.copy(), table_block.angle)
     draw = ImageDraw.Draw(masked_table_image)
     token_map: dict[str, str] = {}
-    token_codes = _iter_token_codes()
+    used_token_codes: set[str] = set()
+    max_token_count = len(TABLE_IMAGE_TOKEN_CHARS) ** TABLE_IMAGE_TOKEN_LENGTH
     font_cache: dict[tuple[int, int], tuple[ImageFont.FreeTypeFont | ImageFont.ImageFont, int, int]] = {}
 
     def get_font_for_box(box_w: int, box_h: int, token_text: str):
@@ -312,11 +312,6 @@ def mask_and_encode_table_image(
         return font, text_w, text_h
 
     for _, image_block in image_entries:
-        try:
-            token_code = next(token_codes)
-        except StopIteration:
-            break
-
         ix1, iy1, ix2, iy2 = image_block.bbox
         abs_ix1 = ix1 * width
         abs_iy1 = iy1 * height
@@ -334,6 +329,15 @@ def mask_and_encode_table_image(
         crop_image = page_image.crop(crop_box)
         if crop_image.width < 1 or crop_image.height < 1:
             continue
+
+        if len(used_token_codes) >= max_token_count:
+            raise RuntimeError("Exhausted random table image token space for this table.")
+
+        while True:
+            token_code = _generate_uid()
+            if token_code not in used_token_codes:
+                used_token_codes.add(token_code)
+                break
 
         token_text = TABLE_IMAGE_TOKEN_TEMPLATE.format(idx=token_code)
         rotated_crop_image = _rotate_image_by_angle(crop_image, table_block.angle)
