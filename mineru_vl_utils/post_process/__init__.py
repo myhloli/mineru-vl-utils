@@ -10,6 +10,7 @@ from .equation_delimeters import try_fix_equation_delimeters
 from .text_inline_spacing import try_fix_macro_spacing_in_markdown
 from .text_display2inline import try_convert_display_to_inline
 from .text_move_underscores_outside import try_move_underscores_outside
+from .image_analysis_postprocess import process_image_or_chart
 from .otsl2html import convert_otsl_to_html
 from .table_image_processor import (
     cleanup_table_image_metadata,
@@ -63,6 +64,12 @@ def simple_process(
                 print("Content: ", block.content)
             content = replace_table_image_tokens(content, block.get(TABLE_IMAGE_TOKEN_MAP_KEY))
             block.content = replace_table_formula_delimiters(content, enabled=enable_table_formula_eq_wrap)
+        if block.type in {"image", "chart"} and block.content:
+            try:
+                block.content = process_image_or_chart(block.content)
+            except Exception as e:
+                print("Warning: Failed to process image/chart: ", e)
+                print("Content: ", block.content)
     return blocks
 
 
