@@ -6,6 +6,10 @@ from .equation_fix_eqqcolon import try_fix_equation_eqqcolon
 from .equation_left_right import try_match_equation_left_right
 from .equation_leq import try_fix_equation_leq
 from .equation_unbalanced_braces import try_fix_unbalanced_braces
+from .equation_delimeters import try_fix_equation_delimeters
+from .text_inline_spacing import try_fix_macro_spacing_in_markdown
+from .text_display2inline import try_convert_display_to_inline
+from .text_move_underscores_outside import try_move_underscores_outside
 from .otsl2html import convert_otsl_to_html
 from .table_image_processor import (
     cleanup_table_image_metadata,
@@ -26,6 +30,7 @@ PARATEXT_TYPES = {
 
 
 def _process_equation(content: str, debug: bool) -> str:
+    content = try_fix_equation_delimeters(content, debug=debug)
     content = try_match_equation_left_right(content, debug=debug)
     content = try_fix_equation_double_subscript(content, debug=debug)
     content = try_fix_equation_eqqcolon(content, debug=debug)
@@ -86,6 +91,15 @@ def post_process(
                 block.content = _process_equation(block.content, debug=debug)
             except Exception as e:
                 print("Warning: Failed to process equation: ", e)
+                print("Content: ", block.content)
+                
+        elif block.type == "text" and block.content:
+            try:
+                block.content = try_convert_display_to_inline(block.content, debug=debug)
+                block.content = try_fix_macro_spacing_in_markdown(block.content, debug=debug)
+                block.content = try_move_underscores_outside(block.content, debug=debug)
+            except Exception as e:
+                print("Warning: Failed to process text: ", e)
                 print("Content: ", block.content)
 
     if handle_equation_block:
