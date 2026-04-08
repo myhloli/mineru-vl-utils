@@ -9,11 +9,24 @@ from loguru import logger
 from PIL import Image
 
 from .post_process import post_process
+from .post_process.table_image_processor import (
+    TABLE_IMAGE_TOKEN_MAP_KEY,
+    build_table_image_map,
+    cleanup_table_image_metadata,
+    is_absorbed_table_image,
+    mark_absorbed_table_images,
+    mask_and_encode_table_image,
+)
 from .structs import BLOCK_TYPES, ContentBlock, ExtractResult
 from .vlm_client import DEFAULT_SYSTEM_PROMPT, SamplingParams, new_vlm_client
 from .vlm_client.utils import gather_tasks, get_png_bytes, get_rgb_image
 
-_layout_re = r"^<\|box_start\|>(\d+)\s+(\d+)\s+(\d+)\s+(\d+)<\|box_end\|><\|ref_start\|>(\w+?)<\|ref_end\|>(.*)$"
+_layout_re = (
+    r"<\|box_start\|>(\d+)\s+(\d+)\s+(\d+)\s+(\d+)"
+    r"<\|box_end\|><\|ref_start\|>(\w+?)<\|ref_end\|>"
+    r"(?:(<\|rotate_(?:up|right|down|left)\|>))?"
+    r"(.*?)(?=<\|box_start\|>|$)"
+)
 
 
 class MinerUSamplingParams(SamplingParams):
@@ -85,6 +98,14 @@ def _parse_angle(tail: str) -> Literal[None, 0, 90, 180, 270]:
     return None
 
 
+def _parse_merge_type(tail: str) -> Literal[None, 'src', 'tgt']:
+    if "txt_contd_src" in tail:
+        return "src"
+    elif "txt_contd_tgt" in tail:
+        return "tgt"
+    return None
+
+
 class MinerUClientHelper:
     def __init__(
         self,
@@ -100,6 +121,7 @@ class MinerUClientHelper:
         abandon_paratext: bool,
         image_analysis: bool,
         debug: bool,
+        enable_table_formula_eq_wrap: bool = False,
     ) -> None:
         self.backend = backend
         self.prompts = prompts
@@ -112,6 +134,7 @@ class MinerUClientHelper:
         self.abandon_list = abandon_list
         self.abandon_paratext = abandon_paratext
         self.image_analysis = image_analysis
+        self.enable_table_formula_eq_wrap = enable_table_formula_eq_wrap
         self.debug = debug
 
     def resize_by_need(self, image: Image.Image) -> Image.Image:
@@ -140,24 +163,25 @@ class MinerUClientHelper:
 
     def parse_layout_output(self, output: str) -> list[ContentBlock]:
         blocks: list[ContentBlock] = []
-        for line in output.split("\n"):
-            match = re.match(_layout_re, line)
-            if not match:
-                print(f"Warning: line does not match layout format: {line}")
-                continue  # Skip invalid lines
-            x1, y1, x2, y2, ref_type, tail = match.groups()
+        matched = False
+        for match in re.finditer(_layout_re, output, re.DOTALL):
+            matched = True
+            x1, y1, x2, y2, ref_type, rotate_token, tail = match.groups()
             bbox = _convert_bbox((x1, y1, x2, y2))
             if bbox is None:
-                print(f"Warning: invalid bbox in line: {line}")
+                print(f"Warning: invalid bbox in line: {match.group(0)}")
                 continue  # Skip invalid bbox
             ref_type = ref_type.lower()
             if ref_type not in BLOCK_TYPES:
-                print(f"Warning: unknown block type in line: {line}")
+                print(f"Warning: unknown block type in line: {match.group(0)}")
                 continue  # Skip unknown block types
-            angle = _parse_angle(tail)
+            angle = _parse_angle(rotate_token) if rotate_token else None
             if angle is None:
-                print(f"Warning: no angle found in line: {line}")
-            blocks.append(ContentBlock(ref_type, bbox, angle=angle))
+                print(f"Warning: no angle found in line: {match.group(0)}")
+            merge_type = _parse_merge_type(tail)
+            blocks.append(ContentBlock(ref_type, bbox, angle=angle, merge_type=merge_type))
+        if not matched and output.strip():
+            print(f"Warning: output does not match layout format: {output}")
         return blocks
 
     def prepare_for_extract(
@@ -179,16 +203,32 @@ class MinerUClientHelper:
             for not_extract_type in not_extract_list:
                 if not_extract_type in BLOCK_TYPES:
                     skip_list.add(not_extract_type)
+
+        table_indices = [idx for idx, block in enumerate(blocks) if block.type == "table" and block.type not in skip_list]
+        table_to_images = build_table_image_map(blocks, threshold=0.9, table_indices=table_indices)
+        absorbed_image_indices = sorted({image_idx for image_indices in table_to_images.values() for image_idx in image_indices})
+        mark_absorbed_table_images(blocks, absorbed_image_indices)
+
         for idx, block in enumerate(blocks):
             if block.type in skip_list:
                 continue  # Skip blocks that should not be extracted.
+            if block.type == "image" and is_absorbed_table_image(block):
+                continue
+            table_image_prepared = False
             x1, y1, x2, y2 = block.bbox
             scaled_bbox = (x1 * width, y1 * height, x2 * width, y2 * height)
             block_image = image.crop(scaled_bbox)
             if block_image.width < 1 or block_image.height < 1:
                 print(f"Warning: cropped block image has invalid size {block_image.size}")
                 continue
-            if block.angle in [90, 180, 270]:
+            if block.type == "table":
+                image_indices = table_to_images.get(idx, [])
+                image_entries = [(image_idx, blocks[image_idx]) for image_idx in image_indices]
+                block_image, token_map = mask_and_encode_table_image(image, block, image_entries, block_image)
+                table_image_prepared = True
+                if token_map:
+                    block[TABLE_IMAGE_TOKEN_MAP_KEY] = token_map
+            if not table_image_prepared and block.angle in [90, 180, 270]:
                 block_image = block_image.rotate(block.angle, expand=True)
             block_image = self.resize_by_need(block_image)
             if self.backend == "http-client":
@@ -209,11 +249,13 @@ class MinerUClientHelper:
                 handle_equation_block=self.handle_equation_block,
                 abandon_list=self.abandon_list,
                 abandon_paratext=self.abandon_paratext,
+                enable_table_formula_eq_wrap=self.enable_table_formula_eq_wrap,
                 debug=self.debug,
             )
         except Exception as e:
             print(f"Warning: post-processing failed with error: {e}")
-            return blocks
+            clean_blocks = [block for block in blocks if not (block.type == "image" and is_absorbed_table_image(block))]
+            return cleanup_table_image_metadata(clean_blocks)
 
     def batch_prepare_for_layout(
         self,
@@ -332,6 +374,7 @@ class MinerUClient:
         debug: bool = False,
         max_retries: int = 3,  # for http-client backend only
         retry_backoff_factor: float = 0.5,  # for http-client backend only
+        enable_table_formula_eq_wrap: bool = False,
     ) -> None:
         env_debug_value = os.getenv("MINERU_VL_DEBUG_ENABLE", "")
         if env_debug_value:
@@ -373,12 +416,8 @@ class MinerUClient:
             if model is None or processor is None:
                 if not model_path:
                     raise ValueError("model_path must be provided when model or processor is None.")
-
-                try:
-                    from mlx_vlm import load as mlx_load
-                except ImportError:
-                    raise ImportError("Please install mlx-vlm to use the mlx-engine backend.")
-                model, processor = mlx_load(model_path)
+                from mineru_vl_utils.mlx_compat import load_mlx_model
+                model, processor = load_mlx_model(model_path)
 
         elif backend == "lmdeploy-engine":
             if lmdeploy_engine is None:
@@ -455,11 +494,13 @@ class MinerUClient:
             abandon_list=abandon_list,
             abandon_paratext=abandon_paratext,
             image_analysis=image_analysis,
+            enable_table_formula_eq_wrap=enable_table_formula_eq_wrap,
             debug=debug,
         )
         self.backend = backend
         self.prompts = prompts
         self.sampling_params = sampling_params
+        self.enable_table_formula_eq_wrap = enable_table_formula_eq_wrap
         self.incremental_priority = incremental_priority
         self.max_concurrency = max_concurrency
         self.executor = executor
