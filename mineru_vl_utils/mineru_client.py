@@ -78,6 +78,10 @@ ANGLE_MAPPING: dict[str, Literal[0, 90, 180, 270]] = {
     "<|rotate_left|>": 270,
 }
 
+IMAGE_ANALYSIS_TYPES = {"image", "chart"}
+IMAGE_CAPTION_CONTAINER_TYPES = {"image", "chart", "image_block"}
+INTERNAL_BLOCK_THRESHOLD = 0.9
+
 
 def _convert_bbox(bbox: Sequence[int] | Sequence[str]) -> list[float] | None:
     bbox = tuple(map(int, bbox))
@@ -137,6 +141,47 @@ class MinerUClientHelper:
         self.enable_table_formula_eq_wrap = enable_table_formula_eq_wrap
         self.debug = debug
 
+    @staticmethod
+    def _bbox_intersection_area(a: Sequence[float], b: Sequence[float]) -> float:
+        x1 = max(a[0], b[0])
+        y1 = max(a[1], b[1])
+        x2 = min(a[2], b[2])
+        y2 = min(a[3], b[3])
+        if x2 <= x1 or y2 <= y1:
+            return 0.0
+        return (x2 - x1) * (y2 - y1)
+
+    @classmethod
+    def _bbox_cover_ratio(cls, inner: Sequence[float], outer: Sequence[float]) -> float:
+        inner_area = max(0.0, inner[2] - inner[0]) * max(0.0, inner[3] - inner[1])
+        if inner_area == 0:
+            return 0.0
+        return cls._bbox_intersection_area(inner, outer) / inner_area
+
+    @classmethod
+    def _find_covered_block_indices(
+        cls,
+        blocks: Sequence[ContentBlock],
+        candidate_types: set[str],
+        container_types: set[str],
+        threshold: float = INTERNAL_BLOCK_THRESHOLD,
+    ) -> set[int]:
+        container_indices = [idx for idx, block in enumerate(blocks) if block.type in container_types]
+        if not container_indices:
+            return set()
+
+        covered_indices: set[int] = set()
+        for idx, block in enumerate(blocks):
+            if block.type not in candidate_types:
+                continue
+            for container_idx in container_indices:
+                if idx == container_idx:
+                    continue
+                if cls._bbox_cover_ratio(block.bbox, blocks[container_idx].bbox) >= threshold:
+                    covered_indices.add(idx)
+                    break
+        return covered_indices
+
     def resize_by_need(self, image: Image.Image) -> Image.Image:
         edge_ratio = max(image.size) / min(image.size)
         if edge_ratio > self.max_image_edge_ratio:
@@ -190,6 +235,20 @@ class MinerUClientHelper:
         blocks: list[ContentBlock],
         not_extract_list: list[str] | None = None,
     ) -> tuple[list[Image.Image | bytes], list[str], list[SamplingParams | None], list[int]]:
+        internal_caption_indices = self._find_covered_block_indices(
+            blocks,
+            candidate_types={"image_caption"},
+            container_types=IMAGE_CAPTION_CONTAINER_TYPES,
+        )
+        if internal_caption_indices:
+            blocks[:] = [block for idx, block in enumerate(blocks) if idx not in internal_caption_indices]
+
+        non_standalone_visual_indices = self._find_covered_block_indices(
+            blocks,
+            candidate_types=IMAGE_ANALYSIS_TYPES,
+            container_types={"image_block"},
+        )
+
         image = get_rgb_image(image)
         width, height = image.size
         block_images: list[Image.Image | bytes] = []
@@ -212,6 +271,8 @@ class MinerUClientHelper:
         for idx, block in enumerate(blocks):
             if block.type in skip_list:
                 continue  # Skip blocks that should not be extracted.
+            if block.type in IMAGE_ANALYSIS_TYPES and idx in non_standalone_visual_indices:
+                continue
             if block.type == "image" and is_absorbed_table_image(block):
                 continue
             table_image_prepared = False
