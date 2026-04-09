@@ -43,7 +43,7 @@ def try_fix_macro_spacing_in_markdown(text, debug: bool = False) -> str:
     new_text = ''.join(result)
     
     if debug and new_text != text:
-        logger.debug("Fixed equation delimeters from: {} to: {}", text, new_text)
+        logger.debug("Fixed equation delimiters from: {} to: {}", text, new_text)
     return new_text
 
 if __name__ == "__main__":
