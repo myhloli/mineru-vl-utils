@@ -66,10 +66,25 @@ def simple_process(
             block.content = replace_table_formula_delimiters(content, enabled=enable_table_formula_eq_wrap)
         if block.type in {"image", "chart"} and block.content:
             try:
-                block.content = process_image_or_chart(block.content)
+                block_image_analysis_result = process_image_or_chart(block.content)
+                class_name = block_image_analysis_result["class"]
+                content = block_image_analysis_result["content"]
+                if class_name == "chart":
+                    block.type = "chart"
+                    block["sub_type"] = block_image_analysis_result["sub_class"]
+                    block.content = content
+                else:
+                    block.type = "image"
+                    block["sub_type"] = class_name
+                    if class_name == "natural_image" or not content:
+                        block.content = block_image_analysis_result["caption"]
+                    else:
+                        block.content = content
+
             except Exception as e:
                 print("Warning: Failed to process image/chart: ", e)
                 print("Content: ", block.content)
+                block.content = None  # or keep original content, depending on your preference
     return blocks
 
 

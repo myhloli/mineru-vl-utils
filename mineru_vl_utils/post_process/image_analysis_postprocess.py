@@ -18,8 +18,6 @@ def _extract_tagged_field(text: str, start_tag: str, end_tag: str) -> str:
         return ""
     return text[start_idx:end_idx].strip()
 
-
-
 def _count_markdown_table_columns(line: str) -> int:
     stripped = line.strip()
     if stripped.startswith("|"):
@@ -171,7 +169,7 @@ def extract_and_validate_mermaid_strict(content: str) -> str:
     return f"```mermaid\n{processed_code}\n```"
 
 
-def process_image_or_chart(content: str) -> str:
+def process_image_or_chart(content: str) -> dict[str, str]:
     values = {
         field: _extract_tagged_field(content, tags[0], tags[1]) for field, tags in IMAGE_CHART_FIELD_TAGS.items()
     }
@@ -186,8 +184,6 @@ def process_image_or_chart(content: str) -> str:
     # 2) chemical 类别：content 置空
     if class_name == "chemical":
         normalized_content = ""
-    
-
 
     # 3) flowchart 类别：严格校验并提取 mermaid
     if class_name == "flowchart":
@@ -195,14 +191,7 @@ def process_image_or_chart(content: str) -> str:
 
     values["content"] = normalized_content
 
-    return "\n".join(
-        [
-            f"**class:**\n{values['class']}",
-            f"**sub_class:**\n{values['sub_class']}",
-            f"**caption:**\n{values['caption']}",
-            f"**content:**\n{values['content']}",
-        ]
-    )
+    return values
 
 
 if __name__ == "__main__":
