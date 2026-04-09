@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from loguru import logger
 import torch
 from vllm.config import VllmConfig
 
@@ -52,7 +53,7 @@ class VllmV1NoRepeatNGramLogitsProcessor(LogitsProcessor):
             val = _get_int_value(params.extra_args, "no_repeat_ngram_size")
             no_repeat_ngram_size = 0 if (val is None or val < 0) else val
             if isinstance(params.extra_args, dict) and params.extra_args.get("debug"):
-                print(f"Request {index}: no_repeat_ngram_size = {no_repeat_ngram_size}")
+                logger.debug("Request {}: no_repeat_ngram_size = {}", index, no_repeat_ngram_size)
             self.req_info[index] = (no_repeat_ngram_size, output_tok_ids, {})
 
         for a_index, b_index, direct in batch_update.moved:

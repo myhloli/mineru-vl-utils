@@ -1,3 +1,6 @@
+from loguru import logger
+
+
 def try_fix_equation_delimeters(latex: str, debug: bool = False) -> str:
     
     new_latex = latex.strip()
@@ -8,7 +11,7 @@ def try_fix_equation_delimeters(latex: str, debug: bool = False) -> str:
     new_latex = new_latex.strip()
     
     if debug and new_latex != latex:
-        print(f"Fixed equation delimeters from: {latex} to: {new_latex}")
+        logger.debug("Fixed equation delimeters from: {} to: {}", latex, new_latex)
     return new_latex
 
 

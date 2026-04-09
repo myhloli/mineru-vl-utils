@@ -1,3 +1,5 @@
+from loguru import logger
+
 from ..structs import ContentBlock
 from .equation_big import try_fix_equation_big
 from .equation_block import do_handle_equation_block
@@ -60,8 +62,7 @@ def simple_process(
             try:
                 content = convert_otsl_to_html(content)
             except Exception as e:
-                print("Warning: Failed to convert OTSL to HTML: ", e)
-                print("Content: ", block.content)
+                logger.warning("Failed to convert OTSL to HTML: {}; content: {}", e, block.content)
             content = replace_table_image_tokens(content, block.get(TABLE_IMAGE_TOKEN_MAP_KEY))
             block.content = replace_table_formula_delimiters(content, enabled=enable_table_formula_eq_wrap)
         if block.type in {"image", "chart"} and block.content:
@@ -82,8 +83,7 @@ def simple_process(
                         block.content = content
 
             except Exception as e:
-                print("Warning: Failed to process image/chart: ", e)
-                print("Content: ", block.content)
+                logger.warning("Failed to process image/chart: {}; content: {}", e, block.content)
                 block.content = None  # or keep original content, depending on your preference
     return blocks
 
@@ -112,8 +112,7 @@ def post_process(
             try:
                 block.content = _process_equation(block.content, debug=debug)
             except Exception as e:
-                print("Warning: Failed to process equation: ", e)
-                print("Content: ", block.content)
+                logger.warning("Failed to process equation: {}; content: {}", e, block.content)
                 
         elif block.type == "text" and block.content:
             try:
@@ -121,8 +120,7 @@ def post_process(
                 block.content = try_fix_macro_spacing_in_markdown(block.content, debug=debug)
                 block.content = try_move_underscores_outside(block.content, debug=debug)
             except Exception as e:
-                print("Warning: Failed to process text: ", e)
-                print("Content: ", block.content)
+                logger.warning("Failed to process text: {}; content: {}", e, block.content)
 
     if handle_equation_block:
         blocks = do_handle_equation_block(blocks, debug=debug)

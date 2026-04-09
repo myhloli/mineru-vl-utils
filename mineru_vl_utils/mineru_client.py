@@ -226,19 +226,19 @@ class MinerUClientHelper:
             x1, y1, x2, y2, ref_type, rotate_token, tail = match.groups()
             bbox = _convert_bbox((x1, y1, x2, y2))
             if bbox is None:
-                print(f"Warning: invalid bbox in line: {match.group(0)}")
+                logger.warning("Invalid bbox in layout output line: {}", match.group(0))
                 continue  # Skip invalid bbox
             ref_type = ref_type.lower()
             if ref_type not in BLOCK_TYPES:
-                print(f"Warning: unknown block type in line: {match.group(0)}")
+                logger.warning("Unknown block type in layout output line: {}", match.group(0))
                 continue  # Skip unknown block types
             angle = _parse_angle(rotate_token) if rotate_token else None
             if angle is None:
-                print(f"Warning: no angle found in line: {match.group(0)}")
+                logger.warning("No angle found in layout output line: {}", match.group(0))
             merge_type = _parse_merge_type(tail)
             blocks.append(ContentBlock(ref_type, bbox, angle=angle, merge_type=merge_type))
         if not matched and output.strip():
-            print(f"Warning: output does not match layout format: {output}")
+            logger.warning("Layout output does not match expected format: {}", output)
         return blocks
 
     def prepare_for_extract(
@@ -295,7 +295,7 @@ class MinerUClientHelper:
             scaled_bbox = (x1 * width, y1 * height, x2 * width, y2 * height)
             block_image = image.crop(scaled_bbox)
             if block_image.width < 1 or block_image.height < 1:
-                print(f"Warning: cropped block image has invalid size {block_image.size}")
+                logger.warning("Cropped block image has invalid size {}", block_image.size)
                 continue
             if block.type == "table":
                 image_indices = table_to_images.get(idx, [])
@@ -329,7 +329,7 @@ class MinerUClientHelper:
                 debug=self.debug,
             )
         except Exception as e:
-            print(f"Warning: post-processing failed with error: {e}")
+            logger.warning("Post-processing failed with error: {}", e)
             clean_blocks = [block for block in blocks if not (block.type == "image" and is_absorbed_table_image(block))]
             return cleanup_table_image_metadata(clean_blocks)
 
@@ -459,7 +459,7 @@ class MinerUClient:
             elif env_debug_value.lower() in ["false", "0", "no"]:
                 debug = False
             else:
-                logger.warning(f"unknown MINERU_VL_DEBUG_ENABLE config: {env_debug_value}, pass")
+                logger.warning("unknown MINERU_VL_DEBUG_ENABLE config: {}, pass", env_debug_value)
 
         if backend == "transformers":
             if model is None or processor is None:

@@ -1,5 +1,7 @@
 import re
 
+from loguru import logger
+
 def fix_macro_spacing(text, target_macros, known_macros=None):
     if known_macros is None:
         known_macros = set()
@@ -41,7 +43,7 @@ def try_fix_macro_spacing_in_markdown(text, debug: bool = False) -> str:
     new_text = ''.join(result)
     
     if debug and new_text != text:
-        print(f"Fixed equation delimeters from: {text} to: {new_text}")
+        logger.debug("Fixed equation delimeters from: {} to: {}", text, new_text)
     return new_text
 
 if __name__ == "__main__":

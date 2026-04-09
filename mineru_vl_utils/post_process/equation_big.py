@@ -1,5 +1,7 @@
 import re
 
+from loguru import logger
+
 
 def try_fix_equation_big(latex: str, debug: bool = False) -> str:
 
@@ -480,6 +482,6 @@ def try_fix_equation_big(latex: str, debug: bool = False) -> str:
     latex = re.sub(r"\\bigtimes", r"\\times", latex)
     
     if debug and original_latex != latex:
-        print(f"Fixed equation big from: {original_latex} to: {latex}")
+        logger.debug("Fixed equation big from: {} to: {}", original_latex, latex)
 
     return latex
