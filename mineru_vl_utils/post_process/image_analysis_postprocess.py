@@ -10,6 +10,23 @@ IMAGE_CHART_FIELD_TAGS = {
     "content": ("<|content_start|>", "<|content_end|>"),
 }
 
+CHART_SUB_CLASS_MAPPING = {
+    "Line Chart": "line_chart",  # 折线图
+    "Bar Chart": "bar_chart",  # 柱状图
+    "Scatterplot": "scatterplot",  # 散点图
+    "Stacked Bar Chart": "stacked_bar_chart",  # 堆叠柱状图
+    "Area Chart": "area_chart",  # 面积图
+    "Bar-line Hybrid": "bar_line_hybrid",  # 柱线混合图
+    "Histogram": "histogram",  # 直方图
+    "Pie Chart": "pie_chart",  # 饼图
+    "Heatmap": "heatmap",  # 热力图
+    "Bubble Chart": "bubble_chart",  # 气泡图
+    "Radar Chart": "radar_chart",  # 雷达图
+    "Box Plot": "box_plot",  # 箱线图
+    "Geospatial Charts": "geospatial_charts",  # 地理图表
+    "Complex & Scientific": "complex_scientific",  # 复杂与科学绘图
+}
+
 
 def _extract_tagged_field(text: str, start_tag: str, end_tag: str) -> str:
     start_idx = text.find(start_tag)
@@ -244,6 +261,16 @@ def extract_and_validate_mermaid_strict(content: str) -> str:
     return f"```mermaid\n{processed_code}\n```"
 
 
+def _normalize_chart_sub_class(sub_class: str) -> str:
+    normalized_sub_class = re.sub(r"\s+", " ", sub_class).strip()
+    mapped_sub_class = CHART_SUB_CLASS_MAPPING.get(normalized_sub_class)
+    if mapped_sub_class is not None:
+        return mapped_sub_class
+
+    logger.warning("Unknown chart sub_class: {}; mapped to default", sub_class)
+    return "default"
+
+
 def process_image_or_chart(content: str) -> dict[str, str]:
     values = {
         field: _extract_tagged_field(content, tags[0], tags[1]) for field, tags in IMAGE_CHART_FIELD_TAGS.items()
@@ -259,8 +286,10 @@ def process_image_or_chart(content: str) -> dict[str, str]:
     elif class_name == "flowchart":
         normalized_content = extract_and_validate_mermaid_strict(normalized_content)
     # 3) markdown 表格语法有误或不闭合：content 置空
-    elif class_name == "chart" and normalized_content and has_malformed_markdown_table(normalized_content):
-        normalized_content = ""
+    elif class_name == "chart":
+        values["sub_class"] = _normalize_chart_sub_class(values["sub_class"])
+        if normalized_content and has_malformed_markdown_table(normalized_content):
+            normalized_content = ""
 
     values["content"] = normalized_content
 
