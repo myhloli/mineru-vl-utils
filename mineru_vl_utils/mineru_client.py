@@ -196,7 +196,7 @@ class MinerUClientHelper:
         prompts: list[str] = []
         sampling_params: list[SamplingParams | None] = []
         indices: list[int] = []
-        skip_list = {"list", "equation_block"}
+        skip_list = {"list", "equation_block", "image_block"}
         if not self.image_analysis:
             skip_list.update({"image", "chart"})
         if not_extract_list:
