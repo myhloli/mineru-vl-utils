@@ -1,10 +1,30 @@
+import html
 import re
+
+from loguru import logger
 
 IMAGE_CHART_FIELD_TAGS = {
     "class": ("<|class_start|>", "<|class_end|>"),
     "sub_class": ("<|sub_class_start|>", "<|sub_class_end|>"),
     "caption": ("<|caption_start|>", "<|caption_end|>"),
     "content": ("<|content_start|>", "<|content_end|>"),
+}
+
+CHART_SUB_CLASS_MAPPING = {
+    "Line Chart": "line_chart",  # 折线图
+    "Bar Chart": "bar_chart",  # 柱状图
+    "Scatterplot": "scatterplot",  # 散点图
+    "Stacked Bar Chart": "stacked_bar_chart",  # 堆叠柱状图
+    "Area Chart": "area_chart",  # 面积图
+    "Bar-line Hybrid": "bar_line_hybrid",  # 柱线混合图
+    "Histogram": "histogram",  # 直方图
+    "Pie Chart": "pie_chart",  # 饼图
+    "Heatmap": "heatmap",  # 热力图
+    "Bubble Chart": "bubble_chart",  # 气泡图
+    "Radar Chart": "radar_chart",  # 雷达图
+    "Box Plot": "box_plot",  # 箱线图
+    "Geospatial Charts": "geospatial_charts",  # 地理图表
+    "Complex & Scientific": "complex_scientific",  # 复杂与科学绘图
 }
 
 
@@ -37,6 +57,78 @@ def _is_markdown_table_row_candidate(line: str) -> bool:
     if not stripped:
         return False
     return "|" in stripped and _count_markdown_table_columns(stripped) >= 2
+
+
+def _split_markdown_table_row(line: str) -> list[str]:
+    stripped = line.strip()
+    if stripped.startswith("|"):
+        stripped = stripped[1:]
+    if stripped.endswith("|"):
+        stripped = stripped[:-1]
+
+    cells: list[str] = []
+    current: list[str] = []
+    escaped = False
+
+    for char in stripped:
+        if escaped:
+            if char == "|":
+                current.append("|")
+            else:
+                current.append("\\")
+                current.append(char)
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == "|":
+            cells.append("".join(current).strip())
+            current = []
+        else:
+            current.append(char)
+
+    if escaped:
+        current.append("\\")
+    cells.append("".join(current).strip())
+    return cells
+
+
+def convert_markdown_table_to_html(content: str) -> str | None:
+    if not content or not content.strip():
+        return None
+
+    lines = [line.strip() for line in content.strip().splitlines()]
+    if len(lines) < 2 or any(not line for line in lines):
+        return None
+
+    header_line = lines[0]
+    separator_line = lines[1]
+    body_lines = lines[2:]
+
+    if not _is_markdown_table_row_candidate(header_line) or not _is_markdown_table_separator_line(separator_line):
+        return None
+
+    header_cells = _split_markdown_table_row(header_line)
+    separator_cells = _split_markdown_table_row(separator_line)
+    if len(header_cells) < 2 or len(separator_cells) != len(header_cells):
+        return None
+
+    body_cells_list: list[list[str]] = []
+    for body_line in body_lines:
+        if not _is_markdown_table_row_candidate(body_line):
+            return None
+        row_cells = _split_markdown_table_row(body_line)
+        if len(row_cells) != len(header_cells):
+            return None
+        body_cells_list.append(row_cells)
+
+    header_html = "".join(f"<th>{html.escape(cell)}</th>" for cell in header_cells)
+    body_html = "".join(
+        "<tr>" + "".join(f"<td>{html.escape(cell)}</td>" for cell in row_cells) + "</tr>"
+        for row_cells in body_cells_list
+    )
+    return f"<table><tr>{header_html}</tr>{body_html}</table>"
 
 
 def has_malformed_markdown_table(content: str) -> bool:
@@ -169,6 +261,16 @@ def extract_and_validate_mermaid_strict(content: str) -> str:
     return f"```mermaid\n{processed_code}\n```"
 
 
+def _normalize_chart_sub_class(sub_class: str) -> str:
+    normalized_sub_class = re.sub(r"\s+", " ", sub_class).strip()
+    mapped_sub_class = CHART_SUB_CLASS_MAPPING.get(normalized_sub_class)
+    if mapped_sub_class is not None:
+        return mapped_sub_class
+
+    logger.warning("Unknown chart sub_class: {}; mapped to default", sub_class)
+    return "default"
+
+
 def process_image_or_chart(content: str) -> dict[str, str]:
     values = {
         field: _extract_tagged_field(content, tags[0], tags[1]) for field, tags in IMAGE_CHART_FIELD_TAGS.items()
@@ -184,8 +286,10 @@ def process_image_or_chart(content: str) -> dict[str, str]:
     elif class_name == "flowchart":
         normalized_content = extract_and_validate_mermaid_strict(normalized_content)
     # 3) markdown 表格语法有误或不闭合：content 置空
-    elif class_name == "chart" and normalized_content and has_malformed_markdown_table(normalized_content):
-        normalized_content = ""
+    elif class_name == "chart":
+        values["sub_class"] = _normalize_chart_sub_class(values["sub_class"])
+        if normalized_content and has_malformed_markdown_table(normalized_content):
+            normalized_content = ""
 
     values["content"] = normalized_content
 
@@ -210,4 +314,4 @@ graph TD
 <|content_end|>
 
     """
-    print(process_image_or_chart(content))
+    logger.info(process_image_or_chart(content))

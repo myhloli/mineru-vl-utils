@@ -102,7 +102,7 @@ class ContentBlock(dict):
         bbox: list[float],
         angle: Literal[None, 0, 90, 180, 270] = None,
         content: str | None = None,
-        merge_type: Literal[None, 'src', 'tgt'] = None,
+        merge_prev: bool = False,
     ):
         """
         Initialize a layout block.
@@ -111,6 +111,7 @@ class ContentBlock(dict):
             bbox (list[float]): Bounding box coordinates [xmin, ymin, xmax, ymax].
             angle (int or None): Rotation angle of the block. Must be one of {None, 0, 90, 180, 270}.
             content (str or None): The content of the block (if exists).
+            merge_prev (bool): Whether the current text block should merge with the previous block.
         """
         super().__init__()
 
@@ -122,14 +123,17 @@ class ContentBlock(dict):
         assert bbox[1] < bbox[3], "Bounding box y1 must be less than y2"
         assert angle in ANGLE_OPTIONS, f"Invalid angle: {angle}. Must be one of {ANGLE_OPTIONS}"
         assert content is None or isinstance(content, str), "Content must be a string or None"
-        assert merge_type is None or merge_type in {'src', 'tgt'}, f"Invalid merge type: {merge_type}. Must be one of {'src', 'tgt'} or None"
+        assert merge_prev.__class__ is bool, f"Invalid merge_prev: {merge_prev}. Must be bool"
+        if type != BlockType.TEXT:
+            assert merge_prev is False, "merge_prev can only be set for text blocks"
         self["type"] = type
         self["bbox"] = bbox
         self["angle"] = angle
         self["content"] = content
-        self["merge_type"] = merge_type
+        if type == BlockType.TEXT:
+            self["merge_prev"] = merge_prev
         self["scored"] = None
-        
+
     @property
     def type(self) -> str:
         return self["type"]
@@ -137,7 +141,12 @@ class ContentBlock(dict):
     @type.setter
     def type(self, value: str):
         assert value in BLOCK_TYPES, f"Unknown type: {value}"
+        merge_prev = self.get("merge_prev", False)
         self["type"] = value
+        if value == BlockType.TEXT:
+            self["merge_prev"] = merge_prev if merge_prev.__class__ is bool else False
+        else:
+            self.pop("merge_prev", None)
 
     @property
     def bbox(self) -> list[float]:
@@ -171,13 +180,15 @@ class ContentBlock(dict):
         self["content"] = value
 
     @property
-    def merge_type(self) -> Literal[None, 'src', 'tgt']:
-        return self["merge_type"]
+    def merge_prev(self) -> bool:
+        assert self.type == BlockType.TEXT, "merge_prev is only available for text blocks"
+        return self["merge_prev"]
 
-    @merge_type.setter
-    def merge_type(self, value: Literal[None, 'src', 'tgt']):
-        assert value is None or value in {'src', 'tgt'}, f"Invalid merge type: {value}. Must be one of {'src', 'tgt'} or None"
-        self["merge_type"] = value
+    @merge_prev.setter
+    def merge_prev(self, value: bool):
+        assert self.type == BlockType.TEXT, "merge_prev is only available for text blocks"
+        assert value.__class__ is bool, f"Invalid merge_prev: {value}. Must be bool"
+        self["merge_prev"] = value
 
     @property
     def scored(self) -> ScoredOutput | None:

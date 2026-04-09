@@ -104,12 +104,8 @@ def _parse_angle(tail: str) -> Literal[None, 0, 90, 180, 270]:
     return None
 
 
-def _parse_merge_type(tail: str) -> Literal[None, 'src', 'tgt']:
-    if "txt_contd_src" in tail:
-        return "src"
-    elif "txt_contd_tgt" in tail:
-        return "tgt"
-    return None
+def _parse_merge_prev(tail: str) -> bool:
+    return "txt_contd_tgt" in tail
 
 
 class MinerUClientHelper:
@@ -235,8 +231,11 @@ class MinerUClientHelper:
             angle = _parse_angle(rotate_token) if rotate_token else None
             if angle is None:
                 logger.warning("No angle found in layout output line: {}", match.group(0))
-            merge_type = _parse_merge_type(tail)
-            blocks.append(ContentBlock(ref_type, bbox, angle=angle, merge_type=merge_type))
+            if ref_type == "text":
+                merge_prev = _parse_merge_prev(tail)
+                blocks.append(ContentBlock(ref_type, bbox, angle=angle, merge_prev=merge_prev))
+            else:
+                blocks.append(ContentBlock(ref_type, bbox, angle=angle))
         if not matched and output.strip():
             logger.warning("Layout output does not match expected format: {}", output)
         return blocks
