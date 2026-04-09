@@ -1,5 +1,7 @@
 import re
 
+from loguru import logger
+
 from ..structs import ContentBlock
 
 
@@ -66,7 +68,7 @@ def do_handle_equation_block(
 
     if debug:
         for idx, span_indices in sem_equation_spans.items():
-            print(f"Combined equation_block at idx {idx} with spans at {span_indices}")
+            logger.debug("Combined equation_block at idx {} with spans at {}", idx, span_indices)
 
     out_blocks: list[ContentBlock] = []
     for idx in range(len(blocks)):

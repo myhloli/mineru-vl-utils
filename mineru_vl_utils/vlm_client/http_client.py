@@ -319,7 +319,7 @@ class HttpVlmClient(VlmClient):
             if not self.allow_truncated_content:
                 raise RequestError("The response was truncated due to length limit.")
             else:
-                print("Warning: The response was truncated due to length limit.")
+                logger.warning("The response was truncated due to length limit.")
         elif finish_reason != "stop":
             raise RequestError(f"Unexpected finish reason: {finish_reason}")
         message = choices[0].get("message")
@@ -359,13 +359,13 @@ class HttpVlmClient(VlmClient):
             request_text = json.dumps(request_body, ensure_ascii=False)
             if len(request_text) > 4096:
                 request_text = request_text[:2048] + "...(truncated)..." + request_text[-2048:]
-            print(f"Request body: {request_text}")
+            logger.debug("Request body: {}", request_text)
 
         response = self._client.post(self.chat_url, json=request_body)
 
         if self.debug:
-            print(f"Response status code: {response.status_code}")
-            print(f"Response body: {response.text}")
+            logger.debug("Response status code: {}", response.status_code)
+            logger.debug("Response body: {}", response.text)
 
         response_data = self.get_response_data(response)
         return self.get_response_content(response_data)
@@ -417,7 +417,7 @@ class HttpVlmClient(VlmClient):
             request_text = json.dumps(request_body, ensure_ascii=False)
             if len(request_text) > 4096:
                 request_text = request_text[:2048] + "...(truncated)..." + request_text[-2048:]
-            print(f"Request body: {request_text}")
+            logger.debug("Request body: {}", request_text)
 
         with self._client.stream("POST", self.chat_url, json=request_body) as response:
             for chunk in response.iter_lines():
@@ -476,15 +476,15 @@ class HttpVlmClient(VlmClient):
             request_text = json.dumps(request_body, ensure_ascii=False)
             if len(request_text) > 4096:
                 request_text = request_text[:2048] + "...(truncated)..." + request_text[-2048:]
-            print(f"Request body: {request_text}")
+            logger.debug("Request body: {}", request_text)
 
         client = await self._aio_client()
         response = await client.post(self.chat_url, json=request_body)
         response_data = self.get_response_data(response)
 
         if self.debug:
-            print(f"Response status code: {response.status_code}")
-            print(f"Response body: {response.text}")
+            logger.debug("Response status code: {}", response.status_code)
+            logger.debug("Response body: {}", response.text)
 
         return self.get_response_content(response_data)
 

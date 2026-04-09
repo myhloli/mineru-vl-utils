@@ -1,5 +1,7 @@
 import re
 
+from loguru import logger
+
 
 def try_fix_equation_double_subscript(latex: str, debug: bool = False) -> str:
     pattern = r"_\s*\{([^{}]|\{[^{}]*\})*\}\s*_\s*\{([^{}]|\{[^{}]*\})*\}"
@@ -7,5 +9,5 @@ def try_fix_equation_double_subscript(latex: str, debug: bool = False) -> str:
         return latex
     new_latex = re.sub(pattern, "", latex)
     if debug:
-        print(f"Fixed equation double-subscript from: {latex} to: {new_latex}")
+        logger.debug("Fixed equation double-subscript from: {} to: {}", latex, new_latex)
     return new_latex

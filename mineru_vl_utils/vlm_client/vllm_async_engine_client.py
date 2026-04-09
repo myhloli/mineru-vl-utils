@@ -2,6 +2,8 @@ import asyncio
 import uuid
 from typing import TYPE_CHECKING, Sequence
 
+from loguru import logger
+
 if TYPE_CHECKING:
     from vllm.outputs import RequestOutput
 
@@ -137,7 +139,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
             if not self.allow_truncated_content:
                 raise RequestError("The output was truncated due to length limit.")
             else:
-                print("Warning: The output was truncated due to length limit.")
+                logger.warning("The output was truncated due to length limit.")
         elif finish_reason != "stop":
             raise RequestError(f"Unexpected finish reason: {finish_reason}")
 

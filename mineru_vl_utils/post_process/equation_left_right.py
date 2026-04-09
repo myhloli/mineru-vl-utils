@@ -1,5 +1,7 @@
 import re
 
+from loguru import logger
+
 VALID_LEFT_TOKEN_LIST = [
     "\\left\\lbrace",
     "\\left\\lVert",
@@ -365,7 +367,7 @@ def try_match_equation_left_right(latex: str, debug: bool = False) -> str:
     fixed_latex = fix_left_right_mismatch(latex)
 
     if debug:
-        print(f"Trying to fix left-right mismatch in equation: {latex}")
-        print(f"Fixed equation: {fixed_latex}")
+        logger.debug("Trying to fix left-right mismatch in equation: {}", latex)
+        logger.debug("Fixed equation: {}", fixed_latex)
 
     return fixed_latex
