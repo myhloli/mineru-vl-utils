@@ -82,6 +82,7 @@ IMAGE_ANALYSIS_TYPES = {"image", "chart"}
 IMAGE_CAPTION_CONTAINER_TYPES = {"image", "chart", "image_block"}
 INTERNAL_BLOCK_THRESHOLD = 0.9
 IMAGE_ANALYSIS_MIN_BLOCK_SIZE = 0.1
+IMAGE_ANALYSIS_MIN_BLOCK_AREA = 0.01
 
 
 def _convert_bbox(bbox: Sequence[int] | Sequence[str]) -> list[float] | None:
@@ -184,9 +185,14 @@ class MinerUClientHelper:
         return covered_indices
 
     @staticmethod
-    def _is_large_enough_for_image_analysis(block: ContentBlock) -> bool:
+    def _is_eligible_for_image_analysis(block: ContentBlock) -> bool:
         x1, y1, x2, y2 = block.bbox
-        return (x2 - x1) > IMAGE_ANALYSIS_MIN_BLOCK_SIZE and (y2 - y1) > IMAGE_ANALYSIS_MIN_BLOCK_SIZE
+        width = x2 - x1
+        height = y2 - y1
+        return (
+            (width > IMAGE_ANALYSIS_MIN_BLOCK_SIZE and height > IMAGE_ANALYSIS_MIN_BLOCK_SIZE)
+            or width * height > IMAGE_ANALYSIS_MIN_BLOCK_AREA
+        )
 
     def resize_by_need(self, image: Image.Image) -> Image.Image:
         edge_ratio = max(image.size) / min(image.size)
@@ -282,7 +288,7 @@ class MinerUClientHelper:
             if block.type in IMAGE_ANALYSIS_TYPES:
                 if idx in non_standalone_visual_indices:
                     continue
-                if not self._is_large_enough_for_image_analysis(block):
+                if not self._is_eligible_for_image_analysis(block):
                     continue
             table_image_prepared = False
             x1, y1, x2, y2 = block.bbox
