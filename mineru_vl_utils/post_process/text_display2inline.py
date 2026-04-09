@@ -14,7 +14,7 @@ def try_convert_display_to_inline(text: str, debug: bool = False) -> str:
     new_text = re.sub(r'\\\[(.*?)\\\]', replace, text, flags=re.DOTALL)
     
     if debug and new_text != text:
-        logger.debug("Fixed equation delimeters from: {} to: {}", text, new_text)
+        logger.debug("Fixed equation delimiters from: {} to: {}", text, new_text)
     
     return new_text
 
