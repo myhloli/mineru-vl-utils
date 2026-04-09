@@ -177,17 +177,15 @@ def process_image_or_chart(content: str) -> dict[str, str]:
     class_name = values["class"].strip().lower()
     normalized_content = values["content"]
 
-    # 1) markdown 表格语法有误或不闭合：content 置空
-    if normalized_content and has_malformed_markdown_table(normalized_content):
-        normalized_content = ""
-
-    # 2) chemical 类别：content 置空
+    # 1) chemical 类别：content 置空
     if class_name == "chemical":
         normalized_content = ""
-
-    # 3) flowchart 类别：严格校验并提取 mermaid
-    if class_name == "flowchart":
+    # 2) flowchart 类别：严格校验并提取 mermaid
+    elif class_name == "flowchart":
         normalized_content = extract_and_validate_mermaid_strict(normalized_content)
+    # 3) markdown 表格语法有误或不闭合：content 置空
+    elif class_name == "chart" and normalized_content and has_malformed_markdown_table(normalized_content):
+        normalized_content = ""
 
     values["content"] = normalized_content
 
