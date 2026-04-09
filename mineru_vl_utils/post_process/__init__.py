@@ -12,7 +12,7 @@ from .equation_delimeters import try_fix_equation_delimeters
 from .text_inline_spacing import try_fix_macro_spacing_in_markdown
 from .text_display2inline import try_convert_display_to_inline
 from .text_move_underscores_outside import try_move_underscores_outside
-from .image_analysis_postprocess import process_image_or_chart
+from .image_analysis_postprocess import convert_markdown_table_to_html, process_image_or_chart
 from .otsl2html import convert_otsl_to_html
 from .table_image_processor import (
     cleanup_table_image_metadata,
@@ -70,7 +70,21 @@ def simple_process(
                 block_image_analysis_result = process_image_or_chart(block.content)
                 class_name = block_image_analysis_result["class"]
                 content = block_image_analysis_result["content"]
-                if class_name == "chart":
+                if class_name == "pure_table":
+                    block.type = "table"
+                    table_html = convert_markdown_table_to_html(content)
+                    if table_html is None:
+                        logger.warning("Failed to convert markdown table to HTML: {}", content)
+                        block.content = content
+                    else:
+                        block.content = replace_table_formula_delimiters(
+                            table_html,
+                            enabled=enable_table_formula_eq_wrap,
+                        )
+                elif class_name == "pure_formula":
+                    block.type = "equation"
+                    block.content = content
+                elif class_name == "chart":
                     block.type = "chart"
                     block["sub_type"] = block_image_analysis_result["sub_class"]
                     block.content = content

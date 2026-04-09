@@ -1,4 +1,7 @@
+import html
 import re
+
+from loguru import logger
 
 IMAGE_CHART_FIELD_TAGS = {
     "class": ("<|class_start|>", "<|class_end|>"),
@@ -37,6 +40,78 @@ def _is_markdown_table_row_candidate(line: str) -> bool:
     if not stripped:
         return False
     return "|" in stripped and _count_markdown_table_columns(stripped) >= 2
+
+
+def _split_markdown_table_row(line: str) -> list[str]:
+    stripped = line.strip()
+    if stripped.startswith("|"):
+        stripped = stripped[1:]
+    if stripped.endswith("|"):
+        stripped = stripped[:-1]
+
+    cells: list[str] = []
+    current: list[str] = []
+    escaped = False
+
+    for char in stripped:
+        if escaped:
+            if char == "|":
+                current.append("|")
+            else:
+                current.append("\\")
+                current.append(char)
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == "|":
+            cells.append("".join(current).strip())
+            current = []
+        else:
+            current.append(char)
+
+    if escaped:
+        current.append("\\")
+    cells.append("".join(current).strip())
+    return cells
+
+
+def convert_markdown_table_to_html(content: str) -> str | None:
+    if not content or not content.strip():
+        return None
+
+    lines = [line.strip() for line in content.strip().splitlines()]
+    if len(lines) < 2 or any(not line for line in lines):
+        return None
+
+    header_line = lines[0]
+    separator_line = lines[1]
+    body_lines = lines[2:]
+
+    if not _is_markdown_table_row_candidate(header_line) or not _is_markdown_table_separator_line(separator_line):
+        return None
+
+    header_cells = _split_markdown_table_row(header_line)
+    separator_cells = _split_markdown_table_row(separator_line)
+    if len(header_cells) < 2 or len(separator_cells) != len(header_cells):
+        return None
+
+    body_cells_list: list[list[str]] = []
+    for body_line in body_lines:
+        if not _is_markdown_table_row_candidate(body_line):
+            return None
+        row_cells = _split_markdown_table_row(body_line)
+        if len(row_cells) != len(header_cells):
+            return None
+        body_cells_list.append(row_cells)
+
+    header_html = "".join(f"<th>{html.escape(cell)}</th>" for cell in header_cells)
+    body_html = "".join(
+        "<tr>" + "".join(f"<td>{html.escape(cell)}</td>" for cell in row_cells) + "</tr>"
+        for row_cells in body_cells_list
+    )
+    return f"<table><tr>{header_html}</tr>{body_html}</table>"
 
 
 def has_malformed_markdown_table(content: str) -> bool:
@@ -210,4 +285,4 @@ graph TD
 <|content_end|>
 
     """
-    print(process_image_or_chart(content))
+    logger.info(process_image_or_chart(content))
