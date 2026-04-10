@@ -277,6 +277,7 @@ def process_image_or_chart(content: str) -> dict[str, str]:
     }
 
     class_name = values["class"].strip().lower()
+    values["class"] = class_name
     normalized_content = values["content"]
 
     # 1) chemical 类别：content 置空
