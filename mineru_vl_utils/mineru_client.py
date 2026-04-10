@@ -7,6 +7,7 @@ from typing import Literal, Sequence
 
 from loguru import logger
 from PIL import Image
+from sympy.strategies.branch import debug
 
 from .post_process import post_process
 from .post_process.table_image_processor import (
@@ -225,6 +226,10 @@ class MinerUClientHelper:
                 logger.warning("Invalid bbox in layout output line: {}", match.group(0))
                 continue  # Skip invalid bbox
             ref_type = ref_type.lower()
+            if ref_type == "inline_formula":
+                if self.debug:
+                    logger.debug("Skipping inline formula block in layout output: {}", match.group(0))
+                continue
             if ref_type not in BLOCK_TYPES:
                 logger.warning("Unknown block type in layout output line: {}", match.group(0))
                 continue  # Skip unknown block types
