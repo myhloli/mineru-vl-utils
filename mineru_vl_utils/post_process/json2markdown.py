@@ -1,5 +1,7 @@
 import re
 
+from loguru import logger
+
 
 def json2md(json_data: dict) -> str:
     content_list = []
@@ -21,8 +23,7 @@ def json2md(json_data: dict) -> str:
                     if ctype == "text":
                         last_text_contd_idx = len(content_list) - 1
         except Exception as e:
-            print(f"Error processing bbox {idx}: {e}")
-            print(bbox_info)
+            logger.warning("Failed to process bbox {}: {}; bbox_info: {}", idx, e, bbox_info)
             continue
     md_result = "\n\n".join(content_list)
     return md_result
