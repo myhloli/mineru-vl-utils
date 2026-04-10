@@ -1,5 +1,7 @@
 import re
 
+from loguru import logger
+
 def try_move_underscores_outside(text: str, debug: bool = False) -> str:
     def process_match(m):
         inner = m.group(1)
@@ -21,7 +23,7 @@ def try_move_underscores_outside(text: str, debug: bool = False) -> str:
     new_text = re.sub(r'\\\((.+?)\\\)', process_match, text, flags=re.DOTALL)
     
     if debug and new_text != text:
-        print(f"Fixed equation delimeters from: {text} to: {new_text}")
+        logger.debug("Fixed equation delimiters from: {} to: {}", text, new_text)
     
     return new_text
 

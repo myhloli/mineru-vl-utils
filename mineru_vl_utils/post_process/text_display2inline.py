@@ -1,5 +1,7 @@
 import re
 
+from loguru import logger
+
 def try_convert_display_to_inline(text: str, debug: bool = False) -> str:
     
     def replace(m):
@@ -12,7 +14,7 @@ def try_convert_display_to_inline(text: str, debug: bool = False) -> str:
     new_text = re.sub(r'\\\[(.*?)\\\]', replace, text, flags=re.DOTALL)
     
     if debug and new_text != text:
-        print(f"Fixed equation delimeters from: {text} to: {new_text}")
+        logger.debug("Fixed equation delimiters from: {} to: {}", text, new_text)
     
     return new_text
 
