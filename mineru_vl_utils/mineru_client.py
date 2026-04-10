@@ -7,7 +7,6 @@ from typing import Literal, Sequence
 
 from loguru import logger
 from PIL import Image
-from sympy.strategies.branch import debug
 
 from .post_process import post_process
 from .post_process.table_image_processor import (
