@@ -14,6 +14,7 @@ from .text_display2inline import try_convert_display_to_inline
 from .text_move_underscores_outside import try_move_underscores_outside
 from .image_analysis_postprocess import convert_markdown_table_to_html, process_image_or_chart
 from .otsl2html import convert_otsl_to_html
+from .json2markdown import json2md
 from .table_image_processor import (
     cleanup_table_image_metadata,
     is_absorbed_table_image,
