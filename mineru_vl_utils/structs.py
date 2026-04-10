@@ -85,7 +85,7 @@ class ExtractResult(list["ContentBlock"]):
 
     When scored=True is passed to the extraction method:
     - layout_scored: ScoredOutput for the layout detection step (whole-page score)
-    - blocks[i].scored: ScoredOutput for each content block's extraction step
+    - blocks[i].scored: optional ScoredOutput for each content block's extraction step
     """
 
     layout_scored: ScoredOutput | None
@@ -132,7 +132,6 @@ class ContentBlock(dict):
         self["content"] = content
         if type == BlockType.TEXT:
             self["merge_prev"] = merge_prev
-        self["scored"] = None
 
     @property
     def type(self) -> str:
@@ -192,8 +191,11 @@ class ContentBlock(dict):
 
     @property
     def scored(self) -> ScoredOutput | None:
-        return self["scored"]
+        return self.get("scored")
 
     @scored.setter
     def scored(self, value: ScoredOutput | None):
-        self["scored"] = value
+        if value is None:
+            self.pop("scored", None)
+        else:
+            self["scored"] = value
