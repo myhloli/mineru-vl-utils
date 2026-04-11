@@ -10,22 +10,47 @@ IMAGE_CHART_FIELD_TAGS = {
     "content": ("<|content_start|>", "<|content_end|>"),
 }
 
-CHART_SUB_CLASS_MAPPING = {
-    "Line Chart": "line_chart",  # 折线图
-    "Bar Chart": "bar_chart",  # 柱状图
-    "Scatterplot": "scatterplot",  # 散点图
-    "Stacked Bar Chart": "stacked_bar_chart",  # 堆叠柱状图
-    "Area Chart": "area_chart",  # 面积图
-    "Bar-line Hybrid": "bar_line_hybrid",  # 柱线混合图
-    "Histogram": "histogram",  # 直方图
-    "Pie Chart": "pie_chart",  # 饼图
-    "Heatmap": "heatmap",  # 热力图
-    "Bubble Chart": "bubble_chart",  # 气泡图
-    "Radar Chart": "radar_chart",  # 雷达图
-    "Box Plot": "box_plot",  # 箱线图
-    "Geospatial Charts": "geospatial_charts",  # 地理图表
-    "Complex & Scientific": "complex_scientific",  # 复杂与科学绘图
+CHART_SUB_CLASS_GROUPS: dict[str, tuple[str, ...]] = {
+    "line_chart": ("Line Chart", "line chart", "line graph", "line"),  # 折线图
+    "bar_chart": ("Bar Chart", "bar chart", "column chart", "column", "bar"),  # 柱状图
+    "scatterplot": ("Scatterplot", "scatter plot", "scatter"),  # 散点图
+    "stacked_bar_chart": ("Stacked Bar Chart", "stacked bar chart", "stacked bar"),  # 堆叠柱状图
+    "area_chart": ("Area Chart", "area chart", "3D area chart", "3D area", "area"),  # 面积图
+    "bar_line_hybrid": ("Bar-line Hybrid", "bar line hybrid", "bar-line hybrid", "bar line"),  # 柱线混合图
+    "histogram": ("Histogram",),  # 直方图
+    "pie_chart": ("Pie Chart", "pie chart", "pie"),  # 饼图
+    "heatmap": ("Heatmap", "heat map"),  # 热力图
+    "bubble_chart": ("Bubble Chart", "bubble chart", "bubble"),  # 气泡图
+    "radar_chart": ("Radar Chart", "radar chart", "radar"),  # 雷达图
+    "box_plot": ("Box Plot", "box plot", "boxplot", "box"),  # 箱线图
+    "geospatial_charts": ("Geospatial Charts", "geospatial chart", "geospatial", "map chart"),  # 地理图表
+    "complex_scientific": ("Complex & Scientific", "complex and scientific", "complex scientific", "scientific"),  # 复杂与科学绘图
 }
+
+
+def _canonicalize_chart_sub_class(sub_class: str) -> str:
+    normalized_sub_class = re.sub(r"\s+", " ", sub_class).strip().lower()
+    normalized_sub_class = normalized_sub_class.replace("&", " and ")
+    normalized_sub_class = re.sub(r"[\W_]+", " ", normalized_sub_class)
+    return re.sub(r"\s+", " ", normalized_sub_class).strip()
+
+
+def _build_chart_sub_class_lookup(groups: dict[str, tuple[str, ...]]) -> dict[str, str]:
+    lookup: dict[str, str] = {}
+    for mapped_sub_class, variants in groups.items():
+        for variant in variants:
+            canonical_variant = _canonicalize_chart_sub_class(variant)
+            existing_sub_class = lookup.get(canonical_variant)
+            if existing_sub_class is not None and existing_sub_class != mapped_sub_class:
+                raise ValueError(
+                    f"Duplicate canonical chart sub_class variant '{canonical_variant}' "
+                    f"for '{existing_sub_class}' and '{mapped_sub_class}'"
+                )
+            lookup[canonical_variant] = mapped_sub_class
+    return lookup
+
+
+CANONICAL_CHART_SUB_CLASS_LOOKUP = _build_chart_sub_class_lookup(CHART_SUB_CLASS_GROUPS)
 
 
 def _extract_tagged_field(text: str, start_tag: str, end_tag: str) -> str:
@@ -262,13 +287,13 @@ def extract_and_validate_mermaid_strict(content: str) -> str:
 
 
 def _normalize_chart_sub_class(sub_class: str) -> str:
-    normalized_sub_class = re.sub(r"\s+", " ", sub_class).strip()
-    mapped_sub_class = CHART_SUB_CLASS_MAPPING.get(normalized_sub_class)
+    normalized_sub_class = _canonicalize_chart_sub_class(sub_class)
+    mapped_sub_class = CANONICAL_CHART_SUB_CLASS_LOOKUP.get(normalized_sub_class)
     if mapped_sub_class is not None:
         return mapped_sub_class
 
-    logger.warning("Unknown chart sub_class: {}; mapped to default", sub_class)
-    return "default"
+    logger.warning("Unknown chart sub_class: {}; mapped to complex_scientific", sub_class)
+    return "complex_scientific"
 
 
 def process_image_or_chart(content: str) -> dict[str, str]:
