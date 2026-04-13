@@ -119,6 +119,10 @@ def post_process(
 ) -> list[ContentBlock]:
     blocks = simple_process(blocks, enable_table_formula_eq_wrap=enable_table_formula_eq_wrap)
 
+    for block in blocks:
+        if block.type == "list_item":
+            block.type = "text"
+
     if simple_post_process:
         return _finalize_simple_blocks(blocks)
 
