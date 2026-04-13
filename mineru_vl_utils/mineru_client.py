@@ -225,6 +225,8 @@ class MinerUClientHelper:
                 logger.warning("Invalid bbox in layout output line: {}", match.group(0))
                 continue  # Skip invalid bbox
             ref_type = ref_type.lower()
+            if ref_type == "unknown":
+                ref_type = "image"
             if ref_type == "inline_formula":
                 if self.debug:
                     logger.debug("Skipping inline formula block in layout output: {}", match.group(0))
