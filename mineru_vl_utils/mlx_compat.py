@@ -10,7 +10,6 @@ from typing import Any
 from loguru import logger
 
 _QWEN_VL_MODEL_TYPES = {"qwen2_vl", "qwen2_5_vl"}
-_MISTRAL_MODEL_TYPES = {"mistral", "mistral3", "voxtral", "ministral", "pixtral"}
 _COMPAT_MODEL_DIRS: list[Path] = []
 _LM_HEAD_WEIGHT_KEYS = {"lm_head.weight", "language_model.lm_head.weight"}
 
@@ -122,11 +121,4 @@ def load_mlx_model(path_or_hf_repo: str, **kwargs):
         force_download=force_download,
     )
     prepared_path = _prepare_mlx_model_path(model_path)
-
-    with open(prepared_path / "config.json", encoding="utf-8") as f:
-        config = json.load(f)
-
-    if config.get("model_type") not in _MISTRAL_MODEL_TYPES:
-        kwargs.setdefault("fix_mistral_regex", False)
-
     return mlx_load(str(prepared_path), **kwargs)
