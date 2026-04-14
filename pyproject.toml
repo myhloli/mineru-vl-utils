@@ -53,6 +53,9 @@ lmdeploy = [
 [tool.setuptools.dynamic]
 version = { attr = "mineru_vl_utils.version.__version__" }
 
+[tool.setuptools.packages.find]
+include = ["mineru_vl_utils*"]
+
 [tool.black]
 line-length = 128
 
