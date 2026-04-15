@@ -292,6 +292,7 @@ def new_vlm_client(
     debug: bool = False,
     max_retries: int = 3,
     retry_backoff_factor: float = 0.5,
+    skip_model_name_checking: bool = False,
 ) -> VlmClient:
     if backend == "http-client":
         from .http_client import HttpVlmClient
@@ -314,6 +315,7 @@ def new_vlm_client(
             debug=debug,
             max_retries=max_retries,
             retry_backoff_factor=retry_backoff_factor,
+            skip_model_name_checking=skip_model_name_checking,
         )
 
     elif backend == "transformers":

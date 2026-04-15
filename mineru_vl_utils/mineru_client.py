@@ -186,9 +186,8 @@ class MinerUClientHelper:
         width = x2 - x1
         height = y2 - y1
         return (
-            (width > IMAGE_ANALYSIS_MIN_BLOCK_SIZE and height > IMAGE_ANALYSIS_MIN_BLOCK_SIZE)
-            or width * height > IMAGE_ANALYSIS_MIN_BLOCK_AREA
-        )
+            width > IMAGE_ANALYSIS_MIN_BLOCK_SIZE and height > IMAGE_ANALYSIS_MIN_BLOCK_SIZE
+        ) or width * height > IMAGE_ANALYSIS_MIN_BLOCK_AREA
 
     def resize_by_need(self, image: Image.Image) -> Image.Image:
         edge_ratio = max(image.size) / min(image.size)
@@ -282,7 +281,9 @@ class MinerUClientHelper:
 
         table_indices = [idx for idx, block in enumerate(blocks) if block.type == "table" and block.type not in skip_list]
         table_to_images = build_table_image_map(blocks, threshold=0.9, table_indices=table_indices)
-        absorbed_image_indices = sorted({image_idx for image_indices in table_to_images.values() for image_idx in image_indices})
+        absorbed_image_indices = sorted(
+            {image_idx for image_indices in table_to_images.values() for image_idx in image_indices}
+        )
         mark_absorbed_table_images(blocks, absorbed_image_indices)
 
         for idx, block in enumerate(blocks):
@@ -455,6 +456,7 @@ class MinerUClient:
         debug: bool = False,
         max_retries: int = 3,  # for http-client backend only
         retry_backoff_factor: float = 0.5,  # for http-client backend only
+        skip_model_name_checking: bool = False,
         enable_table_formula_eq_wrap: bool = False,
     ) -> None:
         env_debug_value = os.getenv("MINERU_VL_DEBUG_ENABLE", "")
@@ -498,6 +500,7 @@ class MinerUClient:
                 if not model_path:
                     raise ValueError("model_path must be provided when model or processor is None.")
                 from mineru_vl_utils.mlx_compat import load_mlx_model
+
                 model, processor = load_mlx_model(model_path)
 
         elif backend == "lmdeploy-engine":
@@ -562,6 +565,7 @@ class MinerUClient:
             debug=debug,
             max_retries=max_retries,
             retry_backoff_factor=retry_backoff_factor,
+            skip_model_name_checking=skip_model_name_checking,
         )
         self.helper = MinerUClientHelper(
             backend=backend,

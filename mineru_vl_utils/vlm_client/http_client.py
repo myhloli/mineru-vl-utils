@@ -65,6 +65,7 @@ class HttpVlmClient(VlmClient):
         debug: bool = False,
         max_retries: int = 3,
         retry_backoff_factor: float = 0.5,
+        skip_model_name_checking: bool = False,
     ) -> None:
         super().__init__(
             prompt=prompt,
@@ -108,7 +109,8 @@ class HttpVlmClient(VlmClient):
 
         model_name = model_name or os.getenv("MINERU_VL_MODEL_NAME")
         if model_name:
-            self._check_model_name(self.server_url, model_name)
+            if not skip_model_name_checking:
+                self._check_model_name(self.server_url, model_name)
             self.model_name = model_name
         else:
             self.model_name = self._get_model_name(self.server_url)
