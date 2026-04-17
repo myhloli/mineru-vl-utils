@@ -32,6 +32,8 @@ PARATEXT_TYPES = {
     "unknown",
 }
 
+_OTSL_TABLE_TOKENS = ("<nl>", "<fcel>", "<ecel>", "<lcel>", "<ucel>", "<xcel>")
+
 
 def _process_equation(content: str, debug: bool) -> str:
     content = try_fix_equation_delimeters(content, debug=debug)
@@ -51,6 +53,35 @@ def _add_equation_brackets(content: str) -> str:
     if not content.endswith("\\]"):
         content = f"{content}\n\\]"
     return content
+
+
+def _convert_pure_table_content_to_html(content: str) -> str:
+    if not content or not content.strip():
+        return ""
+
+    stripped_content = content.strip()
+    if stripped_content.lower().startswith("<table") and stripped_content.lower().endswith("</table>"):
+        return stripped_content
+
+    markdown_html = convert_markdown_table_to_html(content)
+    if markdown_html is not None:
+        return markdown_html
+
+    if any(token in content for token in _OTSL_TABLE_TOKENS):
+        try:
+            otsl_html = convert_otsl_to_html(content)
+        except Exception as e:
+            logger.warning("Failed to convert pure_table OTSL to HTML: {}; content: {}", e, content)
+            return ""
+
+        if not otsl_html or not otsl_html.strip():
+            logger.warning("Failed to convert pure_table OTSL to HTML: {}", content)
+            return ""
+
+        return otsl_html
+
+    logger.warning("Failed to recognize pure_table format: {}", content)
+    return ""
 
 
 def simple_process(
@@ -73,15 +104,14 @@ def simple_process(
                 content = block_image_analysis_result["content"]
                 if class_name == "pure_table":
                     block.type = "table"
-                    table_html = convert_markdown_table_to_html(content)
-                    if table_html is None:
-                        logger.warning("Failed to convert markdown table to HTML: {}", content)
-                        block.content = content
-                    else:
+                    table_html = _convert_pure_table_content_to_html(content)
+                    if table_html:
                         block.content = replace_table_formula_delimiters(
                             table_html,
                             enabled=enable_table_formula_eq_wrap,
                         )
+                    else:
+                        block.content = ""
                 elif class_name == "pure_formula":
                     block.type = "equation"
                     block.content = content
