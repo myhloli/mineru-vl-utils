@@ -1,6 +1,7 @@
 import json
 import re
-from typing import Callable, Sequence
+from dataclasses import dataclass
+from typing import Any, Callable, Sequence
 
 from loguru import logger
 
@@ -10,6 +11,7 @@ try:
     from mineru.utils.table_merge import (
         build_table_state_from_html,
         can_merge_by_structure,
+        calculate_row_rendered_segments,
         detect_table_headers,
     )
 
@@ -27,6 +29,31 @@ SKIP_BETWEEN_TABLE_TYPES = {
     "page_number",
     "page_footnote",
 }
+
+
+@dataclass(frozen=True)
+class _BoundaryRowContext:
+    header_count: int
+    previous_last_row_metrics: Any
+    current_first_data_row_metrics: Any
+    previous_last_row_rendered_segments: int
+    current_first_data_row_rendered_segments: int
+    previous_last_row_texts: list[str]
+    current_first_data_row_texts: list[str]
+
+    @property
+    def expanded_col_count(self) -> int:
+        return len(self.previous_last_row_texts)
+
+
+@dataclass(frozen=True)
+class _MergeTask:
+    prompt: str
+    prev_page_idx: int
+    prev_block_idx: int
+    curr_page_idx: int
+    curr_block_idx: int
+    expected_expanded_col_count: int
 
 
 def _find_last_table_index(blocks: list[ContentBlock]) -> int | None:
@@ -81,6 +108,19 @@ def find_cross_page_table_pairs(
     return pairs
 
 
+def _build_table_states(html1: str, html2: str) -> tuple[Any, Any] | None:
+    """构建两个表格的 TableMergeState。"""
+    if not _HAS_TABLE_MERGE:
+        return None
+
+    state1 = build_table_state_from_html(html1)
+    state2 = build_table_state_from_html(html2)
+    if state1 is None or state2 is None:
+        return None
+
+    return state1, state2
+
+
 def can_tables_merge_by_structure(
     block1: ContentBlock,
     block2: ContentBlock,
@@ -90,10 +130,10 @@ def can_tables_merge_by_structure(
         logger.warning("mineru package not available, cannot check table merge structure")
         return False
 
-    state1 = build_table_state_from_html(block1.content)
-    state2 = build_table_state_from_html(block2.content)
-    if state1 is None or state2 is None:
+    states = _build_table_states(block1.content, block2.content)
+    if states is None:
         return False
+    state1, state2 = states
 
     bbox1 = tuple(block1.bbox)
     bbox2 = tuple(block2.bbox)
@@ -172,47 +212,58 @@ def _extract_row_cell_texts(html: str, row_index: int) -> list[str] | None:
     return result
 
 
-def _get_header_count(html1: str, html2: str) -> int:
-    """获取两个表格的表头行数。"""
-    if not _HAS_TABLE_MERGE:
-        return 0
-
-    state1 = build_table_state_from_html(html1)
-    state2 = build_table_state_from_html(html2)
-    if state1 is None or state2 is None:
-        return 0
+def _build_boundary_row_context(html1: str, html2: str) -> _BoundaryRowContext | None:
+    """构建跨页表格边界行的上下文信息。"""
+    states = _build_table_states(html1, html2)
+    if states is None:
+        return None
+    state1, state2 = states
 
     header_count, _, _ = detect_table_headers(state1, state2)
-    return header_count
+    previous_last_row_metrics = state1.last_data_row_metrics
+    current_first_data_row_metrics = state2.front_first_data_row_metrics.get(header_count)
+    if previous_last_row_metrics is None or current_first_data_row_metrics is None:
+        return None
+
+    previous_last_row_texts = _extract_row_cell_texts(html1, previous_last_row_metrics.row_idx)
+    current_first_data_row_texts = _extract_row_cell_texts(html2, current_first_data_row_metrics.row_idx)
+    if previous_last_row_texts is None or current_first_data_row_texts is None:
+        return None
+
+    previous_last_row_rendered_segments = calculate_row_rendered_segments(state1.rows, previous_last_row_metrics.row_idx)
+    current_first_data_row_rendered_segments = calculate_row_rendered_segments(
+        state2.rows, current_first_data_row_metrics.row_idx
+    )
+
+    return _BoundaryRowContext(
+        header_count=header_count,
+        previous_last_row_metrics=previous_last_row_metrics,
+        current_first_data_row_metrics=current_first_data_row_metrics,
+        previous_last_row_rendered_segments=previous_last_row_rendered_segments,
+        current_first_data_row_rendered_segments=current_first_data_row_rendered_segments,
+        previous_last_row_texts=previous_last_row_texts,
+        current_first_data_row_texts=current_first_data_row_texts,
+    )
 
 
 def build_cell_merge_prompt(
-    html1: str,
-    html2: str,
-    header_count: int,
+    context: _BoundaryRowContext,
 ) -> str | None:
     """构建跨页表格单元格合并的 VLM prompt。
 
     Args:
-        html1: 上一页末表的 HTML
-        html2: 当前页首表的 HTML
-        header_count: 当前页首表的表头行数（需跳过）
+        context: 跨页表格边界行上下文
 
     Returns:
         格式化的 prompt 字符串，或 None（无法提取有效数据时）
     """
-    last_row_texts = _extract_row_cell_texts(html1, -1)
-    if last_row_texts is None:
-        return None
+    last_row_texts = context.previous_last_row_texts
+    first_data_row_texts = context.current_first_data_row_texts
 
-    first_data_row_texts = _extract_row_cell_texts(html2, header_count)
-    if first_data_row_texts is None:
-        return None
-
-    # 视觉列数不一致时无法对齐合并，跳过 VLM 调用
+    # 按展开后的视觉列无法对齐时，跳过 VLM 调用
     if len(last_row_texts) != len(first_data_row_texts):
         logger.debug(
-            "Skipping cell merge prompt: visual column count mismatch ({} vs {})",
+            "Skipping cell merge prompt: expanded boundary column count mismatch ({} vs {})",
             len(last_row_texts), len(first_data_row_texts),
         )
         return None
@@ -269,13 +320,13 @@ def parse_cell_merge_response(response: str) -> list[int] | None:
 def _prepare_merge_tasks(
     results: Sequence[ExtractResult],
     pairs: list[tuple[int, int, int, int]],
-) -> list[tuple[str, int, int, int, int]]:
+) -> list[_MergeTask]:
     """为可合并的跨页表格对准备 VLM prompts。
 
     Returns:
-        [(prompt, prev_page_idx, prev_block_idx, curr_page_idx, curr_block_idx), ...]
+        [_MergeTask(...), ...]
     """
-    tasks: list[tuple[str, int, int, int, int]] = []
+    tasks: list[_MergeTask] = []
     for prev_page_idx, prev_block_idx, curr_page_idx, curr_block_idx in pairs:
         prev_block = results[prev_page_idx][prev_block_idx]
         curr_block = results[curr_page_idx][curr_block_idx]
@@ -283,18 +334,39 @@ def _prepare_merge_tasks(
         if not can_tables_merge_by_structure(prev_block, curr_block):
             continue
 
-        header_count = _get_header_count(prev_block.content, curr_block.content)
-        prompt = build_cell_merge_prompt(prev_block.content, curr_block.content, header_count)
+        context = _build_boundary_row_context(prev_block.content, curr_block.content)
+        if context is None:
+            continue
+
+        prev_rendered_segments = context.previous_last_row_rendered_segments
+        curr_rendered_segments = context.current_first_data_row_rendered_segments
+        if prev_rendered_segments != curr_rendered_segments:
+            logger.debug(
+                "Skipping cell merge prompt: boundary rendered segment mismatch ({} vs {})",
+                prev_rendered_segments, curr_rendered_segments,
+            )
+            continue
+
+        prompt = build_cell_merge_prompt(context)
         if prompt is None:
             continue
 
-        tasks.append((prompt, prev_page_idx, prev_block_idx, curr_page_idx, curr_block_idx))
+        tasks.append(
+            _MergeTask(
+                prompt=prompt,
+                prev_page_idx=prev_page_idx,
+                prev_block_idx=prev_block_idx,
+                curr_page_idx=curr_page_idx,
+                curr_block_idx=curr_block_idx,
+                expected_expanded_col_count=context.expanded_col_count,
+            )
+        )
     return tasks
 
 
 def _apply_merge_results(
     results: Sequence[ExtractResult],
-    tasks: list[tuple[str, int, int, int, int]],
+    tasks: list[_MergeTask],
     responses: list[str],
 ) -> None:
     """将 VLM batch 返回结果应用到对应的 block 上。"""
@@ -304,16 +376,25 @@ def _apply_merge_results(
             len(tasks), len(responses),
         )
         return
-    for (prompt, prev_page_idx, prev_block_idx, curr_page_idx, curr_block_idx), response in zip(
-        tasks, responses
-    ):
+    for task, response in zip(tasks, responses):
         cell_merge = parse_cell_merge_response(response)
+        if cell_merge is None:
+            continue
+
+        if len(cell_merge) != task.expected_expanded_col_count:
+            logger.debug(
+                "Skipping cross-page table merge result: expanded boundary column count mismatch for "
+                "page {} block {} -> page {} block {} ({} vs {})",
+                task.prev_page_idx, task.prev_block_idx, task.curr_page_idx, task.curr_block_idx,
+                len(cell_merge), task.expected_expanded_col_count,
+            )
+            continue
+
         logger.debug(
             "Cross-page table merge detected: page {} block {} -> page {} block {}, cell_merge={}",
-            prev_page_idx, prev_block_idx, curr_page_idx, curr_block_idx, cell_merge,
+            task.prev_page_idx, task.prev_block_idx, task.curr_page_idx, task.curr_block_idx, cell_merge,
         )
-        if cell_merge is not None:
-            results[curr_page_idx][curr_block_idx]["cell_merge"] = cell_merge
+        results[task.curr_page_idx][task.curr_block_idx]["cell_merge"] = cell_merge
 
 
 def detect_cross_page_cell_merge(
@@ -341,7 +422,7 @@ def detect_cross_page_cell_merge(
     if not tasks:
         return
 
-    prompts = [t[0] for t in tasks]
+    prompts = [t.prompt for t in tasks]
     try:
         responses = batch_predict_fn(prompts)
     except Exception as e:
@@ -375,7 +456,7 @@ async def aio_detect_cross_page_cell_merge(
     if not tasks:
         return
 
-    prompts = [t[0] for t in tasks]
+    prompts = [t.prompt for t in tasks]
     try:
         responses = await aio_batch_predict_fn(prompts)
     except Exception as e:
