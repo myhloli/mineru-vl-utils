@@ -59,6 +59,10 @@ def _convert_pure_table_content_to_html(content: str) -> str:
     if not content or not content.strip():
         return ""
 
+    stripped_content = content.strip()
+    if stripped_content.lower().startswith("<table") and stripped_content.lower().endswith("</table>"):
+        return stripped_content
+
     markdown_html = convert_markdown_table_to_html(content)
     if markdown_html is not None:
         return markdown_html
