@@ -298,6 +298,12 @@ def _apply_merge_results(
     responses: list[str],
 ) -> None:
     """将 VLM batch 返回结果应用到对应的 block 上。"""
+    if len(tasks) != len(responses):
+        logger.warning(
+            "Task/response count mismatch: {} tasks but {} responses, skipping merge results",
+            len(tasks), len(responses),
+        )
+        return
     for (prompt, prev_page_idx, prev_block_idx, curr_page_idx, curr_block_idx), response in zip(
         tasks, responses
     ):
