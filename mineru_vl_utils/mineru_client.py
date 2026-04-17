@@ -60,6 +60,7 @@ DEFAULT_PROMPTS: dict[str, str] = {
     "chart": "\nImage Analysis:",
     "[default]": "\nText Recognition:",
     "[layout]": "\nLayout Detection:",
+    "[cross_page_table_merge]": "",  # prompt is dynamic, built from table content
 }
 
 DEFAULT_SAMPLING_PARAMS: dict[str, SamplingParams] = {
@@ -69,6 +70,7 @@ DEFAULT_SAMPLING_PARAMS: dict[str, SamplingParams] = {
     "chart": MinerUSamplingParams(presence_penalty=1.0, frequency_penalty=0.05),
     "[default]": MinerUSamplingParams(presence_penalty=1.0, frequency_penalty=0.05),
     "[layout]": MinerUSamplingParams(),
+    "[cross_page_table_merge]": MinerUSamplingParams(presence_penalty=1.0, frequency_penalty=0.05),
 }
 
 ANGLE_MAPPING: dict[str, Literal[0, 90, 180, 270]] = {
@@ -124,6 +126,7 @@ class MinerUClientHelper:
         image_analysis: bool,
         debug: bool,
         enable_table_formula_eq_wrap: bool = False,
+        enable_cross_page_table_merge: bool = False,
     ) -> None:
         self.backend = backend
         self.prompts = prompts
@@ -137,6 +140,7 @@ class MinerUClientHelper:
         self.abandon_paratext = abandon_paratext
         self.image_analysis = image_analysis
         self.enable_table_formula_eq_wrap = enable_table_formula_eq_wrap
+        self.enable_cross_page_table_merge = enable_cross_page_table_merge
         self.debug = debug
 
     @staticmethod
@@ -456,6 +460,7 @@ class MinerUClient:
         max_retries: int = 3,  # for http-client backend only
         retry_backoff_factor: float = 0.5,  # for http-client backend only
         enable_table_formula_eq_wrap: bool = False,
+        enable_cross_page_table_merge: bool = False,
     ) -> None:
         env_debug_value = os.getenv("MINERU_VL_DEBUG_ENABLE", "")
         if env_debug_value:
@@ -576,6 +581,7 @@ class MinerUClient:
             abandon_paratext=abandon_paratext,
             image_analysis=image_analysis,
             enable_table_formula_eq_wrap=enable_table_formula_eq_wrap,
+            enable_cross_page_table_merge=enable_cross_page_table_merge,
             debug=debug,
         )
         self.backend = backend
@@ -926,11 +932,23 @@ class MinerUClient:
         if not isinstance(priority, Sequence):
             priority = [priority] * len(images)
         semaphore = semaphore or asyncio.Semaphore(self.max_concurrency)
-        return await gather_tasks(
+        results = await gather_tasks(
             tasks=[self.aio_two_step_extract(*args, semaphore, not_extract_list, scored) for args in zip(images, priority)],
             use_tqdm=self.use_tqdm,
             tqdm_desc="Two Step Extraction",
         )
+
+        if self.helper.enable_cross_page_table_merge:
+            from .post_process.cross_page_table import aio_detect_cross_page_cell_merge
+
+            params = self.sampling_params.get("[cross_page_table_merge]")
+
+            async def predict_fn(prompt: str) -> str:
+                return await self.client.aio_predict(None, prompt, params)
+
+            await aio_detect_cross_page_cell_merge(results, predict_fn)
+
+        return results
 
     def stepping_two_step_extract(
         self,
@@ -972,6 +990,17 @@ class MinerUClient:
             r = ExtractResult(proc_blocks)
             r.layout_scored = orig_result.layout_scored
             results.append(r)
+
+        if self.helper.enable_cross_page_table_merge:
+            from .post_process.cross_page_table import detect_cross_page_cell_merge
+
+            params = self.sampling_params.get("[cross_page_table_merge]")
+
+            def predict_fn(prompt: str) -> str:
+                return self.client.predict(None, prompt, params)
+
+            detect_cross_page_cell_merge(results, predict_fn)
+
         return results
 
     async def aio_stepping_two_step_extract(
@@ -1038,6 +1067,17 @@ class MinerUClient:
             r = ExtractResult(proc_blocks)
             r.layout_scored = orig_result.layout_scored
             results.append(r)
+
+        if self.helper.enable_cross_page_table_merge:
+            from .post_process.cross_page_table import aio_detect_cross_page_cell_merge
+
+            params = self.sampling_params.get("[cross_page_table_merge]")
+
+            async def predict_fn(prompt: str) -> str:
+                return await self.client.aio_predict(None, prompt, params)
+
+            await aio_detect_cross_page_cell_merge(results, predict_fn)
+
         return results
 
     def batch_two_step_extract(
