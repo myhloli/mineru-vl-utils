@@ -11,6 +11,7 @@ try:
     from mineru.utils.table_merge import (
         build_table_state_from_html,
         can_merge_by_structure,
+        calculate_row_rendered_segments,
         detect_table_headers,
     )
 
@@ -35,6 +36,8 @@ class _BoundaryRowContext:
     header_count: int
     previous_last_row_metrics: Any
     current_first_data_row_metrics: Any
+    previous_last_row_rendered_segments: int
+    current_first_data_row_rendered_segments: int
     previous_last_row_texts: list[str]
     current_first_data_row_texts: list[str]
 
@@ -227,10 +230,17 @@ def _build_boundary_row_context(html1: str, html2: str) -> _BoundaryRowContext |
     if previous_last_row_texts is None or current_first_data_row_texts is None:
         return None
 
+    previous_last_row_rendered_segments = calculate_row_rendered_segments(state1.rows, previous_last_row_metrics.row_idx)
+    current_first_data_row_rendered_segments = calculate_row_rendered_segments(
+        state2.rows, current_first_data_row_metrics.row_idx
+    )
+
     return _BoundaryRowContext(
         header_count=header_count,
         previous_last_row_metrics=previous_last_row_metrics,
         current_first_data_row_metrics=current_first_data_row_metrics,
+        previous_last_row_rendered_segments=previous_last_row_rendered_segments,
+        current_first_data_row_rendered_segments=current_first_data_row_rendered_segments,
         previous_last_row_texts=previous_last_row_texts,
         current_first_data_row_texts=current_first_data_row_texts,
     )
@@ -328,12 +338,12 @@ def _prepare_merge_tasks(
         if context is None:
             continue
 
-        prev_visible_cols = context.previous_last_row_metrics.visual_cols
-        curr_visible_cols = context.current_first_data_row_metrics.visual_cols
-        if prev_visible_cols != curr_visible_cols:
+        prev_rendered_segments = context.previous_last_row_rendered_segments
+        curr_rendered_segments = context.current_first_data_row_rendered_segments
+        if prev_rendered_segments != curr_rendered_segments:
             logger.debug(
-                "Skipping cell merge prompt: boundary visible cell count mismatch ({} vs {})",
-                prev_visible_cols, curr_visible_cols,
+                "Skipping cell merge prompt: boundary rendered segment mismatch ({} vs {})",
+                prev_rendered_segments, curr_rendered_segments,
             )
             continue
 
