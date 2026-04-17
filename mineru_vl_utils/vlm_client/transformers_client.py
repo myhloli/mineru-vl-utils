@@ -65,12 +65,14 @@ class TransformersVlmClient(VlmClient):
         self.batch_size = batch_size
         self.use_tqdm = use_tqdm
 
-    def build_messages(self, prompt: str) -> list[dict]:
+    def build_messages(self, prompt: str, has_image: bool = True) -> list[dict]:
         prompt = prompt or self.prompt
         messages = []
         if self.system_prompt:
             messages.append({"role": "system", "content": self.system_prompt})
-        if "<image>" in prompt:
+        if not has_image:
+            user_messages = [{"type": "text", "text": prompt}]
+        elif "<image>" in prompt:
             prompt_1, prompt_2 = prompt.split("<image>", 1)
             user_messages = [
                 *([{"type": "text", "text": prompt_1}] if prompt_1.strip() else []),
@@ -142,8 +144,11 @@ class TransformersVlmClient(VlmClient):
         if isinstance(priority, Sequence):
             assert len(priority) == len(images), "Length of priority and images must match."
 
-        image_objs: list[Image.Image] = []
+        image_objs: list[Image.Image | None] = []
         for image in images:
+            if image is None:
+                image_objs.append(None)
+                continue
             if not isinstance(image, SingleImageType):
                 raise UnsupportedError("TransformersVlmClient haven't support non-single image yet.")
             if isinstance(image, str):
@@ -156,26 +161,27 @@ class TransformersVlmClient(VlmClient):
         if isinstance(prompts, str):
             chat_prompts: list[str] = [
                 self.processor.apply_chat_template(
-                    self.build_messages(prompts),
+                    self.build_messages(prompts, has_image=image_obj is not None),
                     tokenize=False,
                     add_generation_prompt=True,
                 )
-            ] * len(images)
+                for image_obj in image_objs
+            ]
         else:  # isinstance(prompts, Sequence[str])
             chat_prompts: list[str] = [
                 self.processor.apply_chat_template(
-                    self.build_messages(prompt),
+                    self.build_messages(prompt, has_image=image_obj is not None),
                     tokenize=False,
                     add_generation_prompt=True,
                 )
-                for prompt in prompts
+                for prompt, image_obj in zip(prompts, image_objs)
             ]
 
         if not isinstance(sampling_params, Sequence):
             sampling_params = [sampling_params] * len(images)
 
         inputs = [
-            (args[0].width * args[0].height, idx, *args)
+            (args[0].width * args[0].height if args[0] is not None else 0, idx, *args)
             for (idx, args) in enumerate(zip(image_objs, chat_prompts, sampling_params))
         ]
 
@@ -209,14 +215,21 @@ class TransformersVlmClient(VlmClient):
 
     def _predict_one_batch(
         self,
-        image_objs: list[Image.Image],
+        image_objs: list[Image.Image | None],
         chat_prompts: list[str],
         sampling_params: SamplingParams | None,
         **kwargs,
     ):
+        has_images = [img is not None for img in image_objs]
+        if any(has_images) and not all(has_images):
+            raise UnsupportedError(
+                "TransformersVlmClient does not support mixed batch with both image and text-only samples. "
+                "Please ensure all samples in a batch either have images or are text-only."
+            )
+        actual_image_objs = [img for img in image_objs if img is not None]
         inputs = self.processor(
             text=chat_prompts,
-            images=image_objs,
+            images=actual_image_objs if actual_image_objs else None,
             padding=True,
             return_tensors="pt",
         )

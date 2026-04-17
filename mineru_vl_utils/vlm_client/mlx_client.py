@@ -47,12 +47,14 @@ class MlxVlmClient(VlmClient):
         except ImportError:
             raise ImportError("Please install mlx-vlm to use the mlx-engine backend.")
 
-    def build_messages(self, prompt: str) -> list[dict]:
+    def build_messages(self, prompt: str, has_image: bool = True) -> list[dict]:
         prompt = prompt or self.prompt
         messages = []
         if self.system_prompt:
             messages.append({"role": "system", "content": self.system_prompt})
-        if "<image>" in prompt:
+        if not has_image:
+            user_messages = [{"type": "text", "text": prompt}]
+        elif "<image>" in prompt:
             prompt_1, prompt_2 = prompt.split("<image>", 1)
             user_messages = [
                 *([{"type": "text", "text": prompt_1}] if prompt_1.strip() else []),
@@ -93,11 +95,12 @@ class MlxVlmClient(VlmClient):
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
     ) -> str:
-        if not isinstance(image, SingleImageType):
+        has_image = image is not None
+        if has_image and not isinstance(image, SingleImageType):
             raise UnsupportedError("MlxVlmClient haven't support non-single image yet.")
 
         chat_prompt = self.processor.apply_chat_template(
-            self.build_messages(prompt),
+            self.build_messages(prompt, has_image=has_image),
             tokenize=False,
             add_generation_prompt=True,
         )
@@ -108,7 +111,7 @@ class MlxVlmClient(VlmClient):
             model=self.model,
             processor=self.processor,
             prompt=chat_prompt,
-            image=image,
+            image=image if has_image else None,
             **generate_kwargs,
         )
         return response.text
