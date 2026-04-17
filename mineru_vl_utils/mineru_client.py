@@ -943,10 +943,12 @@ class MinerUClient:
 
             params = self.sampling_params.get("[cross_page_table_merge]")
 
-            async def predict_fn(prompt: str) -> str:
-                return await self.client.aio_predict(None, prompt, params)
+            async def aio_batch_predict_fn(prompts: list[str]) -> list[str]:
+                return await self.client.aio_batch_predict(
+                    [None] * len(prompts), prompts, [params] * len(prompts),
+                )
 
-            await aio_detect_cross_page_cell_merge(results, predict_fn)
+            await aio_detect_cross_page_cell_merge(results, aio_batch_predict_fn)
 
         return results
 
@@ -996,10 +998,12 @@ class MinerUClient:
 
             params = self.sampling_params.get("[cross_page_table_merge]")
 
-            def predict_fn(prompt: str) -> str:
-                return self.client.predict(None, prompt, params)
+            def batch_predict_fn(prompts: list[str]) -> list[str]:
+                return self.client.batch_predict(
+                    [None] * len(prompts), prompts, [params] * len(prompts),
+                )
 
-            detect_cross_page_cell_merge(results, predict_fn)
+            detect_cross_page_cell_merge(results, batch_predict_fn)
 
         return results
 
@@ -1073,10 +1077,12 @@ class MinerUClient:
 
             params = self.sampling_params.get("[cross_page_table_merge]")
 
-            async def predict_fn(prompt: str) -> str:
-                return await self.client.aio_predict(None, prompt, params)
+            async def aio_batch_predict_fn(prompts: list[str]) -> list[str]:
+                return await self.client.aio_batch_predict(
+                    [None] * len(prompts), prompts, [params] * len(prompts),
+                )
 
-            await aio_detect_cross_page_cell_merge(results, predict_fn)
+            await aio_detect_cross_page_cell_merge(results, aio_batch_predict_fn)
 
         return results
 

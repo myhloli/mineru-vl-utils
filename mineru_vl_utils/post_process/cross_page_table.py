@@ -211,18 +211,62 @@ def parse_cell_merge_response(response: str) -> list[int] | None:
     return result
 
 
+def _prepare_merge_tasks(
+    results: Sequence[ExtractResult],
+    pairs: list[tuple[int, int, int, int]],
+) -> list[tuple[str, int, int, int, int]]:
+    """为可合并的跨页表格对准备 VLM prompts。
+
+    Returns:
+        [(prompt, prev_page_idx, prev_block_idx, curr_page_idx, curr_block_idx), ...]
+    """
+    tasks: list[tuple[str, int, int, int, int]] = []
+    for prev_page_idx, prev_block_idx, curr_page_idx, curr_block_idx in pairs:
+        prev_block = results[prev_page_idx][prev_block_idx]
+        curr_block = results[curr_page_idx][curr_block_idx]
+
+        if not can_tables_merge_by_structure(prev_block, curr_block):
+            continue
+
+        header_count = _get_header_count(prev_block.content, curr_block.content)
+        prompt = build_cell_merge_prompt(prev_block.content, curr_block.content, header_count)
+        if prompt is None:
+            continue
+
+        tasks.append((prompt, prev_page_idx, prev_block_idx, curr_page_idx, curr_block_idx))
+    return tasks
+
+
+def _apply_merge_results(
+    results: Sequence[ExtractResult],
+    tasks: list[tuple[str, int, int, int, int]],
+    responses: list[str],
+) -> None:
+    """将 VLM batch 返回结果应用到对应的 block 上。"""
+    for (prompt, prev_page_idx, prev_block_idx, curr_page_idx, curr_block_idx), response in zip(
+        tasks, responses
+    ):
+        cell_merge = parse_cell_merge_response(response)
+        logger.debug(
+            "Cross-page table merge detected: page {} block {} -> page {} block {}, cell_merge={}",
+            prev_page_idx, prev_block_idx, curr_page_idx, curr_block_idx, cell_merge,
+        )
+        if cell_merge is not None:
+            results[curr_page_idx][curr_block_idx]["cell_merge"] = cell_merge
+
+
 def detect_cross_page_cell_merge(
     results: Sequence[ExtractResult],
-    predict_fn: Callable[[str], str],
+    batch_predict_fn: Callable[[list[str]], list[str]],
 ) -> None:
-    """检测跨页表格并通过 VLM 判断单元格合并语义。
+    """检测跨页表格并通过 VLM 批量判断单元格合并语义。
 
-    对于可合并的跨页表格对，调用 predict_fn 获取单元格合并判断结果，
+    对于可合并的跨页表格对，收集所有 prompts 后一次性调用 batch_predict_fn，
     并将 cell_merge 列表存储到当前页首表 block 上。
 
     Args:
         results: 各页的提取结果列表
-        predict_fn: 同步预测函数，接受 prompt 字符串，返回模型输出字符串
+        batch_predict_fn: 同步批量预测函数，接受 prompt 列表，返回模型输出列表
     """
     if not _HAS_TABLE_MERGE:
         logger.warning("mineru package not available, skipping cross-page table merge detection")
@@ -232,42 +276,31 @@ def detect_cross_page_cell_merge(
     if not pairs:
         return
 
-    for prev_page_idx, prev_block_idx, curr_page_idx, curr_block_idx in pairs:
-        prev_block = results[prev_page_idx][prev_block_idx]
-        curr_block = results[curr_page_idx][curr_block_idx]
+    tasks = _prepare_merge_tasks(results, pairs)
+    if not tasks:
+        return
 
-        if not can_tables_merge_by_structure(prev_block, curr_block):
-            continue
+    prompts = [t[0] for t in tasks]
+    try:
+        responses = batch_predict_fn(prompts)
+    except Exception as e:
+        logger.warning("VLM batch predict failed for cross-page table merge: {}", e)
+        return
 
-        header_count = _get_header_count(prev_block.content, curr_block.content)
-        prompt = build_cell_merge_prompt(prev_block.content, curr_block.content, header_count)
-        if prompt is None:
-            continue
-
-        try:
-            response = predict_fn(prompt)
-        except Exception as e:
-            logger.warning("VLM predict failed for cross-page table merge: {}", e)
-            continue
-
-        cell_merge = parse_cell_merge_response(response)
-        logger.debug(
-            "Cross-page table merge detected: page {} block {} -> page {} block {}, cell_merge={}",
-            prev_page_idx, prev_block_idx, curr_page_idx, curr_block_idx, cell_merge,
-        )
-        if cell_merge is not None:
-            curr_block["cell_merge"] = cell_merge
+    _apply_merge_results(results, tasks, responses)
 
 
 async def aio_detect_cross_page_cell_merge(
     results: Sequence[ExtractResult],
-    predict_fn: Callable,
+    aio_batch_predict_fn: Callable,
 ) -> None:
     """异步版本的跨页表格单元格合并检测。
 
+    收集所有 prompts 后一次性调用 aio_batch_predict_fn 进行批量预测。
+
     Args:
         results: 各页的提取结果列表
-        predict_fn: 异步预测函数，接受 prompt 字符串，返回模型输出字符串
+        aio_batch_predict_fn: 异步批量预测函数，接受 prompt 列表，返回模型输出列表
     """
     if not _HAS_TABLE_MERGE:
         logger.warning("mineru package not available, skipping cross-page table merge detection")
@@ -277,28 +310,15 @@ async def aio_detect_cross_page_cell_merge(
     if not pairs:
         return
 
-    for prev_page_idx, prev_block_idx, curr_page_idx, curr_block_idx in pairs:
-        prev_block = results[prev_page_idx][prev_block_idx]
-        curr_block = results[curr_page_idx][curr_block_idx]
+    tasks = _prepare_merge_tasks(results, pairs)
+    if not tasks:
+        return
 
-        if not can_tables_merge_by_structure(prev_block, curr_block):
-            continue
+    prompts = [t[0] for t in tasks]
+    try:
+        responses = await aio_batch_predict_fn(prompts)
+    except Exception as e:
+        logger.warning("VLM batch predict failed for cross-page table merge: {}", e)
+        return
 
-        header_count = _get_header_count(prev_block.content, curr_block.content)
-        prompt = build_cell_merge_prompt(prev_block.content, curr_block.content, header_count)
-        if prompt is None:
-            continue
-
-        try:
-            response = await predict_fn(prompt)
-        except Exception as e:
-            logger.warning("VLM predict failed for cross-page table merge: {}", e)
-            continue
-
-        cell_merge = parse_cell_merge_response(response)
-        logger.debug(
-            "Cross-page table merge detected: page {} block {} -> page {} block {}, cell_merge={}",
-            prev_page_idx, prev_block_idx, curr_page_idx, curr_block_idx, cell_merge,
-        )
-        if cell_merge is not None:
-            curr_block["cell_merge"] = cell_merge
+    _apply_merge_results(results, tasks, responses)
