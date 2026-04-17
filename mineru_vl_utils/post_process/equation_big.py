@@ -4,7 +4,6 @@ from loguru import logger
 
 
 def try_fix_equation_big(latex: str, debug: bool = False) -> str:
-
     # ------------------ \big{)} -> \big) ------------------ #
     original_latex = latex
 
@@ -480,7 +479,7 @@ def try_fix_equation_big(latex: str, debug: bool = False) -> str:
 
     # \bigtimes -> \times
     latex = re.sub(r"\\bigtimes", r"\\times", latex)
-    
+
     if debug and original_latex != latex:
         logger.debug("Fixed equation big from: {} to: {}", original_latex, latex)
 

@@ -19,7 +19,6 @@ def _bbox_cover_ratio(boxA, boxB):
 
 
 def _combined_equations(equation_contents):
-
     total_tags = 0
     for equation_content in equation_contents:
         total_tags += len(re.findall(r"\\tag\s*\{[^}]*\}", equation_content))

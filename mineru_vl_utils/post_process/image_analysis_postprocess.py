@@ -11,20 +11,134 @@ IMAGE_CHART_FIELD_TAGS = {
 }
 
 CHART_SUB_CLASS_GROUPS: dict[str, tuple[str, ...]] = {
-    "line_chart": ("Line Chart", "line chart", "line graph", "line"),  # 折线图
-    "bar_chart": ("Bar Chart", "bar chart", "column chart", "column", "bar"),  # 柱状图
-    "scatterplot": ("Scatterplot", "scatter plot", "scatter"),  # 散点图
-    "stacked_bar_chart": ("Stacked Bar Chart", "stacked bar chart", "stacked bar"),  # 堆叠柱状图
-    "area_chart": ("Area Chart", "area chart", "3D area chart", "3D area", "area"),  # 面积图
-    "bar_line_hybrid": ("Bar-line Hybrid", "bar line hybrid", "bar-line hybrid", "bar line"),  # 柱线混合图
-    "histogram": ("Histogram",),  # 直方图
-    "pie_chart": ("Pie Chart", "pie chart", "pie"),  # 饼图
-    "heatmap": ("Heatmap", "heat map"),  # 热力图
-    "bubble_chart": ("Bubble Chart", "bubble chart", "bubble"),  # 气泡图
-    "radar_chart": ("Radar Chart", "radar chart", "radar"),  # 雷达图
-    "box_plot": ("Box Plot", "box plot", "boxplot", "box"),  # 箱线图
-    "geospatial_charts": ("Geospatial Charts", "geospatial chart", "geospatial", "map chart"),  # 地理图表
-    "complex_scientific": ("Complex & Scientific", "complex and scientific", "complex scientific", "scientific"),  # 复杂与科学绘图
+    # 键名为 chart-types.md 中定义的短形式；变体均小写，由 _canonicalize_chart_sub_class 统一处理
+    "line": ("line chart", "line graph", "line plot", "line"),  # 折线图
+    "bar": (  # 柱状图
+        "bar chart",
+        "column chart",
+        "column bar chart",
+        "vertical bar chart",
+        "column",
+        "bar",
+        "bar graph",
+        "vertical bar",
+    ),
+    "pie": ("pie chart", "pie graph", "pie"),  # 饼图
+    "scatter": ("scatterplot", "scatter plot", "scatter chart", "scatter graph", "scatter"),  # 散点图
+    "histogram": ("histogram", "bar histogram", "frequency histogram"),  # 直方图
+    "heatmap": ("heatmap", "heat map", "heat chart", "correlation heatmap"),  # 热力图
+    "bar_stacked": (  # 堆叠柱状图（含百分比堆叠、水平堆叠）
+        "stacked bar chart",
+        "stacked bar",
+        "stacked column chart",
+        "percent stacked bar chart",
+        "100 percent stacked bar chart",
+        "percentage stacked bar",
+        "horizontal stacked bar chart",
+        "stacked bar graph",
+        "stacked horizontal bar",
+        "stacked column",
+        "100 percent stacked bar",
+    ),
+    "donut": ("donut chart", "doughnut chart", "doughnut graph", "donut", "doughnut"),  # 环形图
+    "area": ("area chart", "area graph", "area plot", "area"),  # 面积图
+    "area_stacked": (  # 堆叠面积图
+        "stacked area chart",
+        "stacked area",
+        "stacked area graph",
+        "3d area chart",
+        "3d area",
+    ),
+    "bubble": ("bubble chart", "bubble plot", "bubble scatter", "bubble"),  # 气泡图
+    "boxplot": (  # 箱线图
+        "box plot",
+        "boxplot",
+        "box chart",
+        "box and whisker plot",
+        "box and whisker",
+        "box whisker",
+        "whisker plot",
+    ),
+    "violin": ("violin plot", "violin chart", "violin graph", "violin"),  # 小提琴图
+    "radar": ("radar chart", "spider chart", "spider web chart", "radar graph", "radar"),  # 雷达图
+    "bar_line": (  # 柱线混合图
+        "bar-line hybrid",
+        "bar line hybrid",
+        "bar line",
+        "bar-line hybrid chart",
+        "bar and line chart",
+        "combined bar line chart",
+        "combo chart",
+        "dual axis chart",
+        "mixed bar line chart",
+        "bar line combination chart",
+        "combination chart",
+    ),
+    "funnel": ("funnel chart", "funnel graph", "funnel"),  # 漏斗图
+    "geo": (  # 地理图表
+        "geospatial charts",
+        "geospatial chart",
+        "geospatial",
+        "map chart",
+        "choropleth map",
+        "choropleth chart",
+        "choropleth",
+        "world map",
+        "regional map",
+        "country map",
+        "geographic map",
+        "geo map",
+        "heat map geographic",
+        "world map with table",
+        "world map with bubble markers",
+    ),
+    "gauge": ("gauge chart", "gauge graph", "gauge", "speedometer chart", "dial chart"),  # 仪表盘
+    "waterfall": ("waterfall chart", "waterfall graph", "waterfall"),  # 瀑布图
+    "treemap": ("treemap", "tree map", "tree map chart", "treemap chart"),  # 矩形树图
+    "sankey": ("sankey chart", "sankey diagram", "sankey graph", "sankey"),  # 桑基图
+    "network": ("network chart", "network graph", "network diagram", "network"),  # 网络关系图
+    "tree": (  # 树形结构图
+        "tree chart",
+        "tree diagram",
+        "tree graph",
+        "tree structure",
+        "hierarchy tree",
+        "hierarchical tree",
+        "tree",
+    ),
+    "word_cloud": ("word cloud", "tag cloud", "word cloud chart"),  # 词云图
+    "sunburst": ("sunburst chart", "sunburst graph", "sunburst"),  # 旭日图
+    "candlestick": (  # 蜡烛图/K线图
+        "candlestick chart",
+        "candle chart",
+        "ohlc chart",
+        "k-line chart",
+        "k line chart",
+        "candlestick",
+    ),
+    "polar": ("polar chart", "polar plot", "polar graph"),  # 极坐标图
+    "polar_bar": ("rose chart", "polar bar chart", "radial bar chart", "wind rose chart", "wind rose"),  # 玫瑰图
+    "contour": ("contour plot", "contour chart", "contour map", "contour graph", "contour"),  # 等高线图
+    "surface_3d": ("surface plot", "3d surface plot", "3d surface chart", "3d surface"),  # 三维曲面图
+    "scatter_3d": ("3d scatter plot", "3d scatter chart", "3d scatter"),  # 三维散点图
+    "dendrogram": ("dendrogram", "dendrogram chart", "cluster dendrogram", "cluster tree"),  # 层次聚类树
+    "pairplot": ("scatter matrix", "pair plot", "pairplot"),  # 散点矩阵
+    "hexbin": ("hexbin plot", "hexbin chart", "hex bin plot", "hexbin"),  # 六边形密度图
+    "qq": ("q-q plot", "qq plot", "quantile-quantile plot", "quantile plot"),  # Q-Q 图
+    "roc": ("roc curve", "roc chart", "roc curve chart", "receiver operating characteristic"),  # ROC 曲线
+    "confusion": ("confusion matrix", "confusion matrix chart", "confusion chart"),  # 混淆矩阵
+    "forest": ("forest plot", "forest diagram", "meta analysis plot"),  # 森林图
+    "manhattan": ("manhattan plot", "manhattan chart", "manhattan graph"),  # 曼哈顿图
+    "volcano": ("volcano plot", "volcano chart", "volcano graph"),  # 火山图
+    "survival": ("survival curve", "kaplan meier curve", "kaplan-meier curve", "survival plot"),  # 生存曲线
+    "spectrogram": ("spectrogram", "spectrum chart", "spectrogram chart"),  # 频谱图
+    "other": (  # 兜底类型
+        "complex & scientific",
+        "complex and scientific",
+        "complex scientific",
+        "scientific",
+        "other",
+    ),
 }
 
 
@@ -53,6 +167,100 @@ def _build_chart_sub_class_lookup(groups: dict[str, tuple[str, ...]]) -> dict[st
 CANONICAL_CHART_SUB_CLASS_LOOKUP = _build_chart_sub_class_lookup(CHART_SUB_CLASS_GROUPS)
 
 
+def _keyword_match_chart_sub_class(normalized: str) -> str | None:
+    """关键词匹配兜底：处理 CHART_SUB_CLASS_GROUPS 未能精确匹配的情况。
+
+    参考 mineru_vl_2_5._parse_chart_type 的实现思路，按优先级从高到低匹配。
+    normalized 为经过 _canonicalize_chart_sub_class 处理后的小写字符串。
+    """
+    # 组合/复合图优先（避免被单关键词规则误匹配）
+    if "waterfall" in normalized:
+        return "waterfall"
+    if "candlestick" in normalized or "candle" in normalized or "k line" in normalized or "ohlc" in normalized:
+        return "candlestick"
+    if "donut" in normalized or "doughnut" in normalized:
+        return "donut"
+    if "sankey" in normalized:
+        return "sankey"
+    if "sunburst" in normalized:
+        return "sunburst"
+    if "treemap" in normalized or "tree map" in normalized:
+        return "treemap"
+    if "funnel" in normalized:
+        return "funnel"
+    if "word cloud" in normalized or "tag cloud" in normalized:
+        return "word_cloud"
+    if "gauge" in normalized or "speedometer" in normalized:
+        return "gauge"
+    if "violin" in normalized:
+        return "violin"
+    if "radar" in normalized or "spider" in normalized:
+        return "radar"
+    if "heatmap" in normalized or "heat map" in normalized:
+        return "heatmap"
+    if "bubble" in normalized:
+        return "bubble"
+    # 柱线混合（bar+line 必须在单独的 bar/line 之前）
+    if "line" in normalized and "bar" in normalized:
+        return "bar_line"
+    if "line" in normalized:
+        return "line"
+    # 堆叠柱（stacked+bar/column 必须在单独的 bar 之前）
+    if ("stacked" in normalized or "stack" in normalized) and ("bar" in normalized or "column" in normalized):
+        return "bar_stacked"
+    if ("stacked" in normalized or "stack" in normalized) and "area" in normalized:
+        return "area_stacked"
+    if "bar" in normalized or "column" in normalized:
+        return "bar"
+    if "area" in normalized:
+        return "area"
+    if "scatter" in normalized:
+        return "scatter"
+    if "histogram" in normalized:
+        return "histogram"
+    if "pie" in normalized:
+        return "pie"
+    if ("box" in normalized and ("plot" in normalized or "whisker" in normalized)) or "boxplot" in normalized:
+        return "boxplot"
+    if "map" in normalized or "geo" in normalized or "choropleth" in normalized or "world map" in normalized:
+        return "geo"
+    if "tree" in normalized or "hierarchy" in normalized or "dendrogram" in normalized:
+        return "tree"
+    if "network" in normalized:
+        return "network"
+    if "3d surface" in normalized or "surface plot" in normalized:
+        return "surface_3d"
+    if "3d scatter" in normalized:
+        return "scatter_3d"
+    if "polar bar" in normalized or "radial bar" in normalized or "rose" in normalized or "wind rose" in normalized:
+        return "polar_bar"
+    if "polar" in normalized:
+        return "polar"
+    if "contour" in normalized:
+        return "contour"
+    if "confusion" in normalized:
+        return "confusion"
+    if "roc" in normalized or "receiver operating" in normalized:
+        return "roc"
+    if "forest" in normalized and "plot" in normalized:
+        return "forest"
+    if "manhattan" in normalized:
+        return "manhattan"
+    if "volcano" in normalized:
+        return "volcano"
+    if "survival" in normalized or "kaplan" in normalized:
+        return "survival"
+    if "spectrogram" in normalized or "spectrum" in normalized:
+        return "spectrogram"
+    if "scatter matrix" in normalized or "pair plot" in normalized or "pairplot" in normalized:
+        return "pairplot"
+    if "hexbin" in normalized or "hex bin" in normalized:
+        return "hexbin"
+    if "qq" in normalized or "q q" in normalized or "quantile" in normalized:
+        return "qq"
+    return None
+
+
 def _extract_tagged_field(text: str, start_tag: str, end_tag: str) -> str:
     start_idx = text.find(start_tag)
     if start_idx < 0:
@@ -63,13 +271,14 @@ def _extract_tagged_field(text: str, start_tag: str, end_tag: str) -> str:
         return ""
     return text[start_idx:end_idx].strip()
 
+
 def _count_markdown_table_columns(line: str) -> int:
     stripped = line.strip()
     if stripped.startswith("|"):
         stripped = stripped[1:]
     if stripped.endswith("|"):
         stripped = stripped[:-1]
-    return len([cell for cell in stripped.split("|")])
+    return len(stripped.split("|"))
 
 
 def _is_markdown_table_separator_line(line: str) -> bool:
@@ -150,8 +359,7 @@ def convert_markdown_table_to_html(content: str) -> str | None:
 
     header_html = "".join(f"<th>{html.escape(cell)}</th>" for cell in header_cells)
     body_html = "".join(
-        "<tr>" + "".join(f"<td>{html.escape(cell)}</td>" for cell in row_cells) + "</tr>"
-        for row_cells in body_cells_list
+        "<tr>" + "".join(f"<td>{html.escape(cell)}</td>" for cell in row_cells) + "</tr>" for row_cells in body_cells_list
     )
     return f"<table><tr>{header_html}</tr>{body_html}</table>"
 
@@ -256,17 +464,17 @@ def extract_and_validate_mermaid_strict(content: str) -> str:
 
         # 2. 如果文本为空，直接返回
         if not raw_text:
-            return f'{node_id}[]'
+            return f"{node_id}[]"
 
         # 3. 剥离原有的外层双引号
         if raw_text.startswith('"') and raw_text.endswith('"'):
             raw_text = raw_text[1:-1]
 
         # 4. 转义文本内部残留的双引号！
-        safe_text = raw_text.replace('"', '&quot;')
+        safe_text = raw_text.replace('"', "&quot;")
 
         # 5. [新增] 将物理换行符替换为 Mermaid 友好的 <br> 标签，防止渲染崩溃
-        safe_text = safe_text.replace('\n', '<br>')
+        safe_text = safe_text.replace("\n", "<br>")
 
         # 6. 重新用标准的双引号包裹
         return f'{node_id}["{safe_text}"]'
@@ -274,10 +482,10 @@ def extract_and_validate_mermaid_strict(content: str) -> str:
     # 正则解析修改：
     # 将原来的 \s 替换为 [ \t]，严格限制节点 ID 不能跨行！
     processed_code = re.sub(
-        r'([a-zA-Z0-9_\u4e00-\u9fa5\-]+(?:[ \t]+[a-zA-Z0-9_\u4e00-\u9fa5\-]+)*)[ \t]*\[(.*?)\]', 
-        node_fixer, 
-        code, 
-        flags=re.DOTALL
+        r"([a-zA-Z0-9_\u4e00-\u9fa5\-]+(?:[ \t]+[a-zA-Z0-9_\u4e00-\u9fa5\-]+)*)[ \t]*\[(.*?)\]",
+        node_fixer,
+        code,
+        flags=re.DOTALL,
     )
 
     # ==========================================
@@ -292,14 +500,18 @@ def _normalize_chart_sub_class(sub_class: str) -> str:
     if mapped_sub_class is not None:
         return mapped_sub_class
 
-    logger.warning("Unknown chart sub_class: {}; mapped to complex_scientific", sub_class)
-    return "complex_scientific"
+    # 精确匹配失败，尝试关键词匹配兜底
+    keyword_matched = _keyword_match_chart_sub_class(normalized_sub_class)
+    if keyword_matched is not None:
+        logger.debug("Unknown chart sub_class: {}; keyword-matched to {}", sub_class, keyword_matched)
+        return keyword_matched
+
+    logger.warning("Unknown chart sub_class: {}; mapped to other", sub_class)
+    return "other"
 
 
 def process_image_or_chart(content: str) -> dict[str, str]:
-    values = {
-        field: _extract_tagged_field(content, tags[0], tags[1]) for field, tags in IMAGE_CHART_FIELD_TAGS.items()
-    }
+    values = {field: _extract_tagged_field(content, tags[0], tags[1]) for field, tags in IMAGE_CHART_FIELD_TAGS.items()}
 
     class_name = values["class"].strip().lower()
     values["class"] = class_name

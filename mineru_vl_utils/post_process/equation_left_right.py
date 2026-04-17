@@ -161,9 +161,8 @@ def tag_element(node_list, array_list):
     node_tag_all_arr = []
     # from top to bottom
     for arr_idx in range(len(array_list)):
-
         contain_arr_tag = array_list[arr_idx][-1]
-        node_list_cur_arr = [node for node in node_list]
+        node_list_cur_arr = list(node_list)
         node_tag_cur_arr = [None for node in node_list]
 
         # mask contained array
@@ -204,71 +203,71 @@ def is_pair_left_right(token_l, token_r):
     if (token_l == "\\left\\lbrace" or token_l == "\\left.") and \
         (token_r == "\\right\\rbrace" or token_r == "\\right."):
         return True
-    
+
     if (token_l == "\\left\\lVert" or token_l == "\\left.") and \
         (token_r == "\\right\\lVert" or token_r == "\\right."):
         return True
-    
+
     if (token_l == "\\left\\lvert" or token_l == "\\left.") and \
         (token_r == "\\right\\lvert" or token_r == "\\right."):
         return True
-    
+
     if (token_l == "\\left\\vert" or token_l == "\\left.") and \
         (token_r == "\\right\\vert" or token_r == "\\right."):
         return True
-    
+
     if (token_l == "\\left\\Vert" or token_l == "\\left.") and \
         (token_r == "\\right\\Vert" or token_r == "\\right."):
         return True
-    
+
     if (token_l == "\\left\\lfloor" or token_l == "\\left.") and \
         (token_r == "\\right\\rfloor" or token_r == "\\right."):
         return True
-    
+
     if (token_l == "\\left\\lbrack" or token_l == "\\left.") and \
         (token_r == "\\right\\rbrack" or token_r == "\\right."):
         return True
-    
+
     if (token_l == "\\left\\langle" or token_l == "\\left.") and \
         (token_r == "\\right\\rangle" or token_r == "\\right."):
         return True
-    
+
     if (token_l == "\\left|" or token_l == "\\left.") and \
         (token_r == "\\right|" or token_r == "\\right."):
         return True
-    
+
     if (token_l == "\\left\\|" or token_l == "\\left.") and \
         (token_r == "\\right\\|" or token_r == "\\right."):
         return True
-    
+
     if (token_l == "\\left[" or token_l == "\\left.") and \
         (token_r == "\\right]" or token_r == "\\right."):
         return True
-    
+
     if (token_l == "\\left]" or token_l == "\\left.") and \
         (token_r == "\\right[" or token_r == "\\right."):
         return True
-    
+
     if (token_l == "\\left(" or token_l == "\\left.") and \
         (token_r == "\\right)" or token_r == "\\right."):
         return True
-    
+
     if (token_l == "\\left)" or token_l == "\\left.") and \
         (token_r == "\\right(" or token_r == "\\right."):
         return True
-    
+
     if (token_l == "\\left\\{" or token_l == "\\left.") and \
         (token_r == "\\right\\}" or token_r == "\\right."):
         return True
-    
+
     if (token_l == "\\left\\}" or token_l == "\\left.") and \
         (token_r == "\\right\\{" or token_r == "\\right."):
         return True
-    
+
     if (token_l == "\\left/" or token_l == "\\left.") and \
         (token_r == "\\right/" or token_r == "\\right."):
         return True
-    
+
     return False
 
 
@@ -294,7 +293,7 @@ def left_right_match(span_list):
 
 
 def clean_span(node_list, node_tag_list):
-    node_list_new = [node for node in node_list]
+    node_list_new = list(node_list)
 
     span_all = [
         node_tag_list[idx]

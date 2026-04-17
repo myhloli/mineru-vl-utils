@@ -2,21 +2,22 @@ import re
 
 from loguru import logger
 
+
 def try_convert_display_to_inline(text: str, debug: bool = False) -> str:
-    
     def replace(m):
         inner = m.group(1)
-        if re.fullmatch(r'[–\d\-,\s]+', inner):
-            return r'\[' + inner + r'\]'
+        if re.fullmatch(r"[–\d\-,\s]+", inner):
+            return r"\[" + inner + r"\]"
         else:
-            return r'\(' + inner + r'\)'
+            return r"\(" + inner + r"\)"
 
-    new_text = re.sub(r'\\\[(.*?)\\\]', replace, text, flags=re.DOTALL)
-    
+    new_text = re.sub(r"\\\[(.*?)\\\]", replace, text, flags=re.DOTALL)
+
     if debug and new_text != text:
         logger.debug("Fixed equation delimiters from: {} to: {}", text, new_text)
-    
+
     return new_text
+
 
 if __name__ == "__main__":
     text = r"(B) \[ \begin{pmatrix}2&-1\\-1&2\end{pmatrix}. \]"

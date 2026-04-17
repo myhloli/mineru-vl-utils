@@ -3,25 +3,25 @@ from loguru import logger
 from ..structs import ContentBlock
 from .equation_big import try_fix_equation_big
 from .equation_block import do_handle_equation_block
+from .equation_delimeters import try_fix_equation_delimeters
 from .equation_double_subscript import try_fix_equation_double_subscript
 from .equation_fix_eqqcolon import try_fix_equation_eqqcolon
 from .equation_left_right import try_match_equation_left_right
 from .equation_leq import try_fix_equation_leq
 from .equation_unbalanced_braces import try_fix_unbalanced_braces
-from .equation_delimeters import try_fix_equation_delimeters
-from .text_inline_spacing import try_fix_macro_spacing_in_markdown
-from .text_display2inline import try_convert_display_to_inline
-from .text_move_underscores_outside import try_move_underscores_outside
 from .image_analysis_postprocess import convert_markdown_table_to_html, process_image_or_chart
-from .otsl2html import convert_otsl_to_html
 from .json2markdown import json2md
+from .otsl2html import convert_otsl_to_html
 from .table_image_processor import (
+    TABLE_IMAGE_TOKEN_MAP_KEY,
     cleanup_table_image_metadata,
     is_absorbed_table_image,
     replace_table_formula_delimiters,
     replace_table_image_tokens,
-    TABLE_IMAGE_TOKEN_MAP_KEY,
 )
+from .text_display2inline import try_convert_display_to_inline
+from .text_inline_spacing import try_fix_macro_spacing_in_markdown
+from .text_move_underscores_outside import try_move_underscores_outside
 
 PARATEXT_TYPES = {
     "header",
@@ -132,7 +132,7 @@ def post_process(
                 block.content = _process_equation(block.content, debug=debug)
             except Exception as e:
                 logger.warning("Failed to process equation: {}; content: {}", e, block.content)
-                
+
         elif block.type == "text" and block.content:
             try:
                 block.content = try_convert_display_to_inline(block.content, debug=debug)
