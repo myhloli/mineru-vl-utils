@@ -209,6 +209,14 @@ def build_cell_merge_prompt(
     if first_data_row_texts is None:
         return None
 
+    # 视觉列数不一致时无法对齐合并，跳过 VLM 调用
+    if len(last_row_texts) != len(first_data_row_texts):
+        logger.debug(
+            "Skipping cell merge prompt: visual column count mismatch ({} vs {})",
+            len(last_row_texts), len(first_data_row_texts),
+        )
+        return None
+
     last_row_repr = repr(last_row_texts)
     first_data_row_repr = repr(first_data_row_texts)
 
