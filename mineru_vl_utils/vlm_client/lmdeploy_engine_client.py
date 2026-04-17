@@ -107,8 +107,11 @@ class LmdeployEngineVlmClient(VlmClient):
         if isinstance(priority, Sequence):
             assert len(priority) == len(images), "Length of priority and images must match."
 
-        image_objs: list[Image.Image] = []
+        image_objs: list[Image.Image | None] = []
         for image in images:
+            if image is None:
+                image_objs.append(None)
+                continue
             if not isinstance(image, SingleImageType):
                 raise UnsupportedError("LmdeployEngineVlmClient haven't support non-single image yet.")
             if isinstance(image, str):
@@ -147,11 +150,14 @@ class LmdeployEngineVlmClient(VlmClient):
 
     def _predict_one_batch(
         self,
-        image_objs: list[Image.Image],
+        image_objs: list[Image.Image | None],
         chat_prompts: list[str],
         gen_configs: list[Any],
     ):
-        lmdeploy_prompts = list(zip(chat_prompts, image_objs))
+        lmdeploy_prompts = [
+            (prompt, image) if image is not None else prompt
+            for prompt, image in zip(chat_prompts, image_objs)
+        ]
         outputs = self.lmdeploy_engine.batch_infer(
             lmdeploy_prompts,  # type: ignore
             gen_config=gen_configs,
@@ -165,15 +171,19 @@ class LmdeployEngineVlmClient(VlmClient):
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
     ) -> str:
-        if not isinstance(image, SingleImageType):
-            raise UnsupportedError("LmdeployEngineVlmClient haven't support non-single image yet.")
-        if isinstance(image, str):
-            image = await aio_load_resource(image)
-        if not isinstance(image, Image.Image):
-            image = Image.open(BytesIO(image))
-        image = get_rgb_image(image)
+        has_image = image is not None
+        if has_image:
+            if not isinstance(image, SingleImageType):
+                raise UnsupportedError("LmdeployEngineVlmClient haven't support non-single image yet.")
+            if isinstance(image, str):
+                image = await aio_load_resource(image)
+            if not isinstance(image, Image.Image):
+                image = Image.open(BytesIO(image))
+            image = get_rgb_image(image)
 
-        lmdeploy_prompts = self.lmdeploy_engine._convert_prompts([(prompt, image)])[0]
+        lmdeploy_prompts = self.lmdeploy_engine._convert_prompts(
+            [(prompt, image)] if has_image else [prompt]
+        )[0]
         gen_config = self.build_lmdeploy_generation_config(sampling_params)
 
         async with self.session_id_lock:
