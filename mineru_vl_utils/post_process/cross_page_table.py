@@ -102,7 +102,11 @@ def can_tables_merge_by_structure(
 
 
 def _extract_row_cell_texts(html: str, row_index: int) -> list[str] | None:
-    """从 HTML 表格中提取指定行的单元格文本列表。"""
+    """从 HTML 表格中提取指定行的单元格文本列表（按视觉列对齐）。
+
+    通过构建完整的列占用网格来处理 rowspan/colspan，确保返回的文本列表
+    按视觉列位置对齐，而非按 <td> 元素的平坦索引。
+    """
     try:
         from bs4 import BeautifulSoup
     except ImportError:
@@ -117,12 +121,55 @@ def _extract_row_cell_texts(html: str, row_index: int) -> list[str] | None:
     if row_index >= len(rows):
         return None
 
-    row = rows[row_index]
-    cells = row.find_all(["td", "th"])
-    if not cells:
+    # 构建列占用网格，跟踪每个位置被哪一行的 rowspan 占用
+    # occupied[row_idx][col_idx] = 起始行索引
+    occupied: dict[int, dict[int, int]] = {}
+    total_cols = 0
+
+    for r_idx in range(row_index + 1):
+        occupied_row = occupied.setdefault(r_idx, {})
+        col_idx = 0
+        cells = rows[r_idx].find_all(["td", "th"])
+        for cell in cells:
+            # 跳过被之前行 rowspan 占用的列
+            while col_idx in occupied_row:
+                col_idx += 1
+            colspan = int(cell.get("colspan", 1))
+            rowspan = int(cell.get("rowspan", 1))
+            # 标记被当前单元格占用的所有位置（记录起始行）
+            for ro in range(rowspan):
+                target_idx = r_idx + ro
+                occ = occupied.setdefault(target_idx, {})
+                for c in range(col_idx, col_idx + colspan):
+                    occ[c] = r_idx  # 记录是哪一行开始的
+            col_idx += colspan
+            total_cols = max(total_cols, col_idx)
+
+    if total_cols == 0:
         return None
 
-    return [cell.get_text().strip() for cell in cells]
+    # 提取目标行中每个单元格到视觉列的映射
+    target_row = rows[row_index]
+    target_cells = target_row.find_all(["td", "th"])
+    if not target_cells:
+        return None
+
+    # 将单元格文本映射到视觉列位置
+    result = [""] * total_cols
+    target_occupied = occupied.get(row_index, {})
+    col_idx = 0
+    for cell in target_cells:
+        # 跳过被之前行 rowspan 占用的列（起始行 < 当前行）
+        while col_idx < total_cols and col_idx in target_occupied and target_occupied[col_idx] < row_index:
+            col_idx += 1
+        if col_idx >= total_cols:
+            break
+        colspan = int(cell.get("colspan", 1))
+        text = cell.get_text().strip()
+        result[col_idx] = text
+        col_idx += colspan
+
+    return result
 
 
 def _get_header_count(html1: str, html2: str) -> int:
