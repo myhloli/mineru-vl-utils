@@ -27,8 +27,7 @@ class TableCell(BaseModel):
                 # "bbox" not in data
                 # or data["bbox"] is None
                 # or isinstance(data["bbox"], BoundingBox)
-                "text"
-                in data
+                "text" in data
             ):
                 return data
             text = data["bbox"].get("token", "")
@@ -101,10 +100,10 @@ def otsl_extract_tokens_and_text(s: str):
     # Find all tokens (e.g. "<otsl>", "<loc_140>", etc.)
     tokens = re.findall(pattern, s)
     # Remove any tokens that start with "<loc_"
-    tokens = [token for token in tokens]
+    tokens = list(tokens)
     # Split the string by those tokens to get the in-between text
     text_parts = re.split(pattern, s)
-    text_parts = [token for token in text_parts]
+    text_parts = list(text_parts)
     # Remove any empty or purely whitespace strings from text_parts
     text_parts = [part for part in text_parts if part.strip()]
 

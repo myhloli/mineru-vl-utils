@@ -90,9 +90,26 @@ class ExtractResult(list["ContentBlock"]):
 
     layout_scored: ScoredOutput | None
 
-    def __init__(self, blocks=()):
+    def __init__(self, blocks=(), layout_scored: ScoredOutput | None = None):
         super().__init__(blocks)
-        self.layout_scored = None
+        self.layout_scored = layout_scored
+
+
+class ExtractStr(str):
+    """
+    str subclass returned by content_extract() and related methods when scored=True.
+    Backward-compatible: all existing str usage works unchanged.
+
+    When scored=True is passed to the extraction method:
+    - scored: ScoredOutput for the content extraction step
+    """
+
+    scored: ScoredOutput | None
+
+    def __new__(cls, value: str, scored: ScoredOutput | None = None):
+        instance = super().__new__(cls, value)
+        instance.scored = scored
+        return instance
 
 
 class ContentBlock(dict):

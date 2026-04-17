@@ -9,11 +9,11 @@ from PIL import Image, ImageDraw, ImageFont
 from ..structs import ContentBlock
 
 FONT_PATH_CANDIDATES = [
-    "C:/Windows/Fonts/arial.ttf",                         # Windows
-    "/System/Library/Fonts/Supplemental/Arial.ttf",      # macOS
-    "/Library/Fonts/Arial.ttf",                           # macOS 备选
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",   # Linux
-    "/usr/share/fonts/dejavu/DejaVuSans.ttf",            # Linux 备选
+    "C:/Windows/Fonts/arial.ttf",  # Windows
+    "/System/Library/Fonts/Supplemental/Arial.ttf",  # macOS
+    "/Library/Fonts/Arial.ttf",  # macOS 备选
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # Linux
+    "/usr/share/fonts/dejavu/DejaVuSans.ttf",  # Linux 备选
 ]
 
 

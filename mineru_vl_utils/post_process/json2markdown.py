@@ -12,7 +12,7 @@ def json2md(json_data: dict) -> str:
             content = bbox_info["content"]
             if content:
                 if bbox_info.get("merge_prev", False) and last_text_contd_idx >= 0:
-                    if re.search(r'[\u4e00-\u9fff\u3400-\u4dbf]', content) is not None:
+                    if re.search(r"[\u4e00-\u9fff\u3400-\u4dbf]", content) is not None:
                         # 中文合并的时候不需要加空格，英文需要加一个空格
                         pass
                     else:
