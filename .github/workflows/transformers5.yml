@@ -1,0 +1,31 @@
+name: Transformers 5 clients
+
+on:
+  pull_request:
+  push:
+    branches: [main, dev, codex/transformers-5]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  clients:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.11', '3.12', '3.13']
+        transformers: ['5.10.1', '5.16.1']
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: astral-sh/setup-uv@v7
+      - run: |
+          uv venv
+          uv pip install '.[transformers,test]' 'transformers==${{ matrix.transformers }}'
+          uv pip check
+          source .venv/bin/activate
+          python -m pytest tests/test_transformers5_clients.py -q

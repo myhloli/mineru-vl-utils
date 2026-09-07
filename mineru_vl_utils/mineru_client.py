@@ -498,7 +498,7 @@ class MinerUClient:
         processor=None,  # transformers processor
         vllm_llm=None,  # vllm.LLM model
         vllm_async_llm=None,  # vllm.v1.engine.async_llm.AsyncLLM instance
-        lmdeploy_engine=None,  # lmdeploy.serve.vl_async_engine.VLAsyncEngine instance
+        lmdeploy_engine=None,  # LMDeploy 0.17 的公开 Pipeline 实例
         llama_cpp_engine=None,  # mineru_llama_cpp.Engine instance
         model_path: str | None = None,
         prompts: dict[str, str] = DEFAULT_PROMPTS,
@@ -545,26 +545,14 @@ class MinerUClient:
                     raise ValueError("model_path must be provided when model or processor is None.")
 
                 try:
-                    from transformers import (
-                        AutoProcessor,
-                        Qwen2VLForConditionalGeneration,
-                    )
-                    from transformers import __version__ as transformers_version
-                except ImportError:
-                    raise ImportError("Please install transformers to use the transformers backend.")
+                    from .transformers_loading import load_transformers_model, load_transformers_processor
 
-                if model is None:
-                    dtype_key = "torch_dtype"
-                    ver_parts = transformers_version.split(".")
-                    if len(ver_parts) >= 2 and int(ver_parts[0]) >= 4 and int(ver_parts[1]) >= 56:
-                        dtype_key = "dtype"
-                    model = Qwen2VLForConditionalGeneration.from_pretrained(
-                        model_path,
-                        device_map="auto",
-                        **{dtype_key: "auto"},  # type: ignore
-                    )
-                if processor is None:
-                    processor = AutoProcessor.from_pretrained(model_path, use_fast=True)
+                    if model is None:
+                        model = load_transformers_model(model_path)
+                    if processor is None:
+                        processor = load_transformers_processor(model_path)
+                except ImportError as exc:
+                    raise ImportError("Please install transformers to use the transformers backend.") from exc
 
         elif backend == "mlx-engine":
             if model is None or processor is None:
@@ -580,11 +568,11 @@ class MinerUClient:
                     raise ValueError("model_path must be provided when lmdeploy_engine is None.")
 
                 try:
-                    from lmdeploy.serve.vl_async_engine import VLAsyncEngine
+                    from lmdeploy import pipeline
                 except ImportError:
                     raise ImportError("Please install lmdeploy to use the lmdeploy-engine backend.")
 
-                lmdeploy_engine = VLAsyncEngine(
+                lmdeploy_engine = pipeline(
                     model_path,
                 )
 

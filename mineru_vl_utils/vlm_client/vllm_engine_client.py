@@ -24,39 +24,6 @@ from .base_client import (
 from .utils import image_to_obj_list
 
 
-def _patch_vllm_logprobs_overflow():
-    """
-    Workaround for vllm bug: multimodal image token IDs can be out of range
-    for the tokenizer, causing OverflowError in convert_ids_list_to_tokens.
-    Patches vllm.v1.engine.logprobs module in-place.
-    """
-    try:
-        import vllm.v1.engine.logprobs as _logprobs_mod
-        from vllm.transformers_utils.tokenizer import AnyTokenizer
-
-        def _safe_convert_ids_list_to_tokens(
-            tokenizer: AnyTokenizer,
-            token_ids: list[int],
-        ) -> list[str]:
-            token_str_lst = []
-            for token_id in token_ids:
-                try:
-                    token_str = tokenizer.decode([token_id])
-                    if token_str is None:
-                        token_str = ""
-                except (OverflowError, ValueError):
-                    token_str = ""
-                token_str_lst.append(token_str)
-            return token_str_lst
-
-        _logprobs_mod.convert_ids_list_to_tokens = _safe_convert_ids_list_to_tokens
-    except Exception:
-        pass  # vllm not installed or structure changed, skip patch
-
-
-_patch_vllm_logprobs_overflow()
-
-
 def _build_raw_vllm_prompt(chat_prompt: str, image_list: list[Image.Image]) -> dict[str, Any]:
     """构造兼容旧版 vLLM 的 raw prompt，供 renderer 不可用时回退。"""
     vllm_prompt: dict[str, Any] = {"prompt": chat_prompt}
@@ -244,10 +211,7 @@ class VllmEngineVlmClient(VlmClient):
         chat_prompts: list[str],
         vllm_sampling_params: list["VllmSamplingParams"],
     ):
-        raw_prompts = [
-            _build_raw_vllm_prompt(chat_prompt, image)
-            for chat_prompt, image in zip(chat_prompts, image_lists)
-        ]
+        raw_prompts = [_build_raw_vllm_prompt(chat_prompt, image) for chat_prompt, image in zip(chat_prompts, image_lists)]
         vllm_prompts = self._render_vllm_cmpl_inputs(raw_prompts)
 
         outputs = self.vllm_llm.generate(
@@ -335,8 +299,7 @@ class VllmEngineVlmClient(VlmClient):
             batch_sp_list = vllm_sp_list[i : i + batch_size]
 
             raw_prompts = [
-                _build_raw_vllm_prompt(chat_prompt, image)
-                for chat_prompt, image in zip(batch_chat_prompts, batch_image_lists)
+                _build_raw_vllm_prompt(chat_prompt, image) for chat_prompt, image in zip(batch_chat_prompts, batch_image_lists)
             ]
             vllm_prompts = self._render_vllm_cmpl_inputs(raw_prompts)
 
@@ -495,8 +458,7 @@ class VllmEngineVlmClient(VlmClient):
             batch_scored_token_counts = scored_token_counts[i : i + batch_size]
 
             raw_prompts = [
-                _build_raw_vllm_prompt(chat_prompt, image)
-                for chat_prompt, image in zip(batch_chat_prompts, batch_image_lists)
+                _build_raw_vllm_prompt(chat_prompt, image) for chat_prompt, image in zip(batch_chat_prompts, batch_image_lists)
             ]
             vllm_prompts = self._render_vllm_cmpl_inputs(raw_prompts)
 
