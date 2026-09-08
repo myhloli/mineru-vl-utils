@@ -20,6 +20,7 @@ dependencies = [
     "pillow",
     "pydantic",
     "loguru",
+    "tqdm",
 ]
 classifiers = [
   "Programming Language :: Python :: 3",
@@ -49,6 +50,9 @@ mlx = [
 lmdeploy = [
     "lmdeploy>=0.10.2,<0.12",
     "qwen_vl_utils",
+]
+llama-cpp = [
+    "mineru-llama-cpp>=0.1.0",
 ]
 
 [tool.setuptools.dynamic]
