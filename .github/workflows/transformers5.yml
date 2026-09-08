@@ -25,7 +25,7 @@ jobs:
       - uses: astral-sh/setup-uv@v7
       - run: |
           uv venv
-          uv pip install '.[transformers,test]' 'transformers==${{ matrix.transformers }}'
+          uv pip install '.[transformers,llama-cpp,test]' 'transformers==${{ matrix.transformers }}'
           uv pip check
           source .venv/bin/activate
           python -m pytest tests/test_transformers5_clients.py tests/test_backend_input_lifecycle.py tests/test_llama_cpp_engine_client.py -q
