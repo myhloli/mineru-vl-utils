@@ -340,3 +340,32 @@ Cross-page and cross-document operations are not planned to be supported, too.
 
 For production use cases, please use [MinerU](https://github.com/opendatalab/mineru),
 which is a more complete toolkit for document analyzing and data extraction.
+
+### MLX model path lifecycle
+
+`mineru_vl_utils.mlx_compat.prepare_mlx_model_path` (2.0.1+) resolves a local path or Hugging Face repo and prepares Qwen compatibility configuration without modifying source weights:
+
+```python
+from mineru_vl_utils.mlx_compat import prepare_mlx_model_path
+
+with prepare_mlx_model_path("/path/to/model") as model_path:
+    # Keep this context open for the entire server lifetime.
+    run_server(model_path)
+```
+
+The context removes only its own temporary directory on exit, including failure paths. `load_mlx_model` uses the same preparation logic for local inference.
+
+### MLX engine batches
+
+MLX engine batches use the public mlx-vlm `BatchGenerator` while preserving the existing MinerU chat template and image position:
+
+```python
+client = MinerUClient("mlx-engine", model_path="/path/to/model", batch_size=8)
+results = client.batch_content_extract(images)
+```
+
+`batch_size=0` (the default) selects 8; `batch_size=1` retains single-image generation. Inputs are grouped by effective sampling parameters and image/text modality, then sorted by pixel count. Results retain input order. Batches are limited by both the requested count and a 9,000,000-pixel input budget; an oversized image runs alone without resizing. This is a batching budget, not a hard memory limit: long contexts and outputs still consume KV cache memory.
+
+Generation remains serialized with the same lock, including asynchronous calls; batching does not enable simultaneous GPU calls from multiple threads. Cancellation waits for in-flight work before releasing resources. Each sample gets independent penalty processors. As before, MLX does not implement `no_repeat_ngram_size` or priority scheduling. Batch decoding can produce small whitespace differences compared with sequential decoding.
+
+The pixel budget accommodates eight 1036×1036 layout inputs (8,586,368 pixels). The default batch is 8; users can explicitly select `batch_size=4`, `2`, or `1` to reduce memory use. Increasing the budget does not enable concurrent GPU calls or remove per-batch limits.

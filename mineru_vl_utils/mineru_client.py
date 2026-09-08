@@ -515,7 +515,7 @@ class MinerUClient:
         incremental_priority: bool = False,
         max_concurrency: int = 100,
         executor: Executor | None = None,
-        batch_size: int = 0,  # for transformers and vllm-engine
+        batch_size: int = 0,  # transformers / MLX / vLLM 等本地引擎的批次大小
         http_timeout: int = 600,  # for http-client backend only
         connect_timeout: int = 10,  # for http-client backend only
         max_connections: int | None = None,  # for http-client backend only
@@ -667,7 +667,7 @@ class MinerUClient:
 
         if backend in ("http-client", "vllm-async-engine", "lmdeploy-engine", "llama-cpp-engine"):
             self.batching_mode = "concurrent"
-        else:  # backend in ("transformers", "vllm-engine")
+        else:  # backend in ("transformers", "mlx-engine", "vllm-engine")
             self.batching_mode = "stepping"
 
     # ------------------------------------------------------------------
