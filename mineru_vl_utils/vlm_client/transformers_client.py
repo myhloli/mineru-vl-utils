@@ -48,18 +48,18 @@ class TransformersVlmClient(VlmClient):
             raise ValueError("Processor does not have apply_chat_template method.")
         self.model = model
         self.processor = processor
-        self.model_max_length = model.config.max_position_embeddings
+        # Transformers 5 将多模态模型的文本参数放在独立子配置中。
+        text_config = model.config.get_text_config(decoder=True)
+        self.model_max_length = text_config.max_position_embeddings
 
         skip_token_ids: set[int] = set()
         for field in ["bos_token_id", "eos_token_id", "pad_token_id"]:
-            if hasattr(model.config, field):
-                token_id = getattr(model.config, field)
+            for source in (getattr(model, "generation_config", None), text_config, processor.tokenizer):
+                token_id = getattr(source, field, None)
                 if isinstance(token_id, int):
                     skip_token_ids.add(token_id)
-            if hasattr(processor.tokenizer, field):
-                token_id = getattr(processor.tokenizer, field)
-                if isinstance(token_id, int):
-                    skip_token_ids.add(token_id)
+                elif isinstance(token_id, (list, tuple)):
+                    skip_token_ids.update(value for value in token_id if isinstance(value, int))
 
         self.skip_token_ids = skip_token_ids
         self.batch_size = batch_size

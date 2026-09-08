@@ -1,5 +1,6 @@
 import asyncio
 from io import BytesIO
+from itertools import groupby
 from typing import Any, Sequence
 
 from PIL import Image
@@ -14,13 +15,13 @@ from .base_client import (
     UnsupportedError,
     VlmClient,
 )
-from .utils import aio_load_resource, gather_tasks, get_rgb_image, load_resource
+from .utils import gather_tasks, get_rgb_image, load_resource, run_in_thread_until_complete
 
 
 class LmdeployEngineVlmClient(VlmClient):
     def __init__(
         self,
-        lmdeploy_engine,  # lmdeploy.serve.vl_async_engine.VLAsyncEngine instance
+        lmdeploy_engine,  # LMDeploy 0.17 的公开 Pipeline 实例
         prompt: str = DEFAULT_USER_PROMPT,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         sampling_params: SamplingParams | None = None,
@@ -41,24 +42,22 @@ class LmdeployEngineVlmClient(VlmClient):
 
         try:
             from lmdeploy import GenerationConfig
-            from lmdeploy.serve.vl_async_engine import VLAsyncEngine
+            from lmdeploy.pipeline import Pipeline
         except ImportError:
             raise ImportError("Please install lmdeploy to use LmdeployEngineVlmClient.")
 
         if not lmdeploy_engine:
             raise ValueError("lmdeploy_engine is None.")
-        if not isinstance(lmdeploy_engine, VLAsyncEngine):
-            raise ValueError(f"lmdeploy_engine must be an instance of {VLAsyncEngine}.")
+        if not isinstance(lmdeploy_engine, Pipeline):
+            raise ValueError("lmdeploy_engine must be an instance of lmdeploy.pipeline.Pipeline.")
 
         self.lmdeploy_engine = lmdeploy_engine
-        self.model_max_length = lmdeploy_engine.session_len
+        self.model_max_length = lmdeploy_engine.backend_config.session_len
         self.LmdeployGenerationConfig = GenerationConfig
         self.batch_size = batch_size
         self.max_concurrency = max_concurrency
         self.use_tqdm = use_tqdm
         self.debug = debug
-        self.session_id = 0
-        self.session_id_lock = asyncio.Semaphore(1)
 
     def build_lmdeploy_generation_config(self, sampling_params: SamplingParams | None):
         sp = self.build_sampling_params(sampling_params)
@@ -91,6 +90,7 @@ class LmdeployEngineVlmClient(VlmClient):
             [image],  # type: ignore
             [prompt],
             [sampling_params],
+            [priority],
         )[0]
 
     def batch_predict(
@@ -135,16 +135,22 @@ class LmdeployEngineVlmClient(VlmClient):
         batch_size = self.batch_size if self.batch_size > 0 else len(images)
         batch_size = max(1, batch_size)
 
-        for i in range(0, len(images), batch_size):
-            batch_image_objs = image_objs[i : i + batch_size]
-            batch_chat_prompts = chat_prompts[i : i + batch_size]
-            batch_gen_configs = gen_configs[i : i + batch_size]
-            batch_outputs = self._predict_one_batch(
-                batch_image_objs,
-                batch_chat_prompts,
-                batch_gen_configs,
-            )
-            outputs.extend(batch_outputs)
+        priorities = priority if isinstance(priority, Sequence) else [priority] * len(images)
+        # Pipeline 的 priority 作用于整次调用；相邻同优先级请求仍按原顺序批处理。
+        for current_priority, group in groupby(
+            zip(image_objs, chat_prompts, gen_configs, priorities), key=lambda item: item[3]
+        ):
+            items = list(group)
+            for i in range(0, len(items), batch_size):
+                batch = items[i : i + batch_size]
+                outputs.extend(
+                    self._predict_one_batch(
+                        [item[0] for item in batch],
+                        [item[1] for item in batch],
+                        [item[2] for item in batch],
+                        priority=current_priority,
+                    )
+                )
 
         return outputs
 
@@ -153,15 +159,20 @@ class LmdeployEngineVlmClient(VlmClient):
         image_objs: list[Image.Image | None],
         chat_prompts: list[str],
         gen_configs: list[Any],
-    ):
-        lmdeploy_prompts = [
-            (prompt, image) if image is not None else prompt
-            for prompt, image in zip(chat_prompts, image_objs)
-        ]
-        outputs = self.lmdeploy_engine.batch_infer(
+        priority: int | None = None,
+    ) -> list[str]:
+        """通过公开 Pipeline 接口推理，并将后端错误传播给同步与异步调用方。"""
+        lmdeploy_prompts = [(prompt, image) if image is not None else prompt for prompt, image in zip(chat_prompts, image_objs)]
+        generate_kwargs = {} if priority is None else {"priority": priority}
+        outputs = self.lmdeploy_engine.infer(
             lmdeploy_prompts,  # type: ignore
             gen_config=gen_configs,
+            **generate_kwargs,
         )
+        if len(outputs) != len(lmdeploy_prompts):
+            raise ServerError("LMDeploy returned an unexpected number of responses.")
+        if any(getattr(output, "finish_reason", None) == "error" for output in outputs):
+            raise ServerError("LMDeploy inference failed.")
         return [output.text for output in outputs]
 
     async def aio_predict(
@@ -171,43 +182,8 @@ class LmdeployEngineVlmClient(VlmClient):
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
     ) -> str:
-        has_image = image is not None
-        if has_image:
-            if not isinstance(image, SingleImageType):
-                raise UnsupportedError("LmdeployEngineVlmClient haven't support non-single image yet.")
-            if isinstance(image, str):
-                image = await aio_load_resource(image)
-            if not isinstance(image, Image.Image):
-                image = Image.open(BytesIO(image))
-            image = get_rgb_image(image)
-
-        lmdeploy_prompts = self.lmdeploy_engine._convert_prompts(
-            [(prompt, image)] if has_image else [prompt]
-        )[0]
-        gen_config = self.build_lmdeploy_generation_config(sampling_params)
-
-        async with self.session_id_lock:
-            session_id = self.session_id
-            self.session_id += 1
-
-        generate_kwargs = {}
-        if priority is not None:
-            generate_kwargs["priority"] = priority
-
-        response_parts = []
-        async for output in self.lmdeploy_engine.generate(
-            messages=lmdeploy_prompts,
-            gen_config=gen_config,
-            session_id=session_id,
-            **generate_kwargs,
-        ):
-            if output.response is not None:
-                response_parts.append(output.response)
-
-        if not response_parts:  # this should not happen
-            raise ServerError("No output from the server.")
-
-        return "".join(response_parts)
+        """在线程中复用 Pipeline；取消时等待在途调用结束，再释放并发名额和共享引擎租约。"""
+        return await run_in_thread_until_complete(self.predict, image, prompt, sampling_params, priority)
 
     async def aio_batch_predict(
         self,

@@ -12,18 +12,22 @@ authors = [
 ]
 description = "Utilities for MinerU Vision-Language models"
 readme = "README.md"
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.10,<3.15"
 dependencies = [
     "httpx",
     "httpx-retries",
     "aiofiles",
-    "pillow",
-    "pydantic",
-    "loguru",
-    "tqdm",
+    "pillow>=11.0.0",
+    "pydantic>=2.12.5,<3",
+    "loguru>=0.7.2",
+    "tqdm>=4.67.1",
 ]
 classifiers = [
-  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Operating System :: OS Independent",
 ]
 license = "Apache-2.0"
@@ -34,25 +38,25 @@ Homepage = "https://github.com/opendatalab/mineru-vl-utils"
 Issues = "https://github.com/opendatalab/mineru-vl-utils/issues"
 
 [project.optional-dependencies]
+test = ["pytest>=8"]
 transformers = [
     "torch>=2.6.0,<3",
-    "transformers>=4.51.1,<5.0.0",
+    "transformers>=5.10.1,<6",
     "accelerate>=1.5.1",
     "torchvision",
 ]
 vllm = [
-    "vllm>=0.10.1.1,<0.22.0",
+    "vllm>=0.19.1,<0.29.0",
 ]
 mlx = [
-    "mlx-vlm>=0.3.3,<0.4.0",
-    "mlx<=0.31.1",
+    "mlx-vlm>=0.7.0,<0.8.0",
 ]
 lmdeploy = [
-    "lmdeploy>=0.10.2,<0.12",
-    "qwen_vl_utils",
+    "lmdeploy>=0.17.0,<0.18",
+    "qwen-vl-utils>=0.0.14,<1",
 ]
 llama-cpp = [
-    "mineru-llama-cpp>=0.1.0",
+    "mineru-llama-cpp>=0.1.1,<1",
 ]
 
 [tool.setuptools.dynamic]

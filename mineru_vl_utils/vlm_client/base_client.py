@@ -274,7 +274,7 @@ def new_vlm_client(
     server_headers: dict[str, str] | None = None,
     model=None,  # transformers model
     processor=None,  # transformers processor
-    lmdeploy_engine=None,  # lmdeploy.serve.vl_async_engine.VLAsyncEngine instance
+    lmdeploy_engine=None,  # LMDeploy 0.17 的公开 Pipeline 实例
     vllm_llm=None,  # vllm.LLM model
     vllm_async_llm=None,  # vllm.v1.engine.async_llm.AsyncLLM instance
     llama_cpp_engine=None,  # mineru_llama_cpp.Engine instance
