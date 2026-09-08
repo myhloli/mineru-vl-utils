@@ -489,6 +489,7 @@ class MinerUClient:
             "lmdeploy-engine",
             "vllm-engine",
             "vllm-async-engine",
+            "llama-cpp-engine",
         ],
         model_name: str | None = None,
         server_url: str | None = None,
@@ -497,7 +498,8 @@ class MinerUClient:
         processor=None,  # transformers processor
         vllm_llm=None,  # vllm.LLM model
         vllm_async_llm=None,  # vllm.v1.engine.async_llm.AsyncLLM instance
-        lmdeploy_engine=None,  # lmdeploy.serve.vl_async_engine.VLAsyncEngine instance
+        lmdeploy_engine=None,  # LMDeploy 0.17 的公开 Pipeline 实例
+        llama_cpp_engine=None,  # mineru_llama_cpp.Engine instance
         model_path: str | None = None,
         prompts: dict[str, str] = DEFAULT_PROMPTS,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
@@ -543,26 +545,14 @@ class MinerUClient:
                     raise ValueError("model_path must be provided when model or processor is None.")
 
                 try:
-                    from transformers import (
-                        AutoProcessor,
-                        Qwen2VLForConditionalGeneration,
-                    )
-                    from transformers import __version__ as transformers_version
-                except ImportError:
-                    raise ImportError("Please install transformers to use the transformers backend.")
+                    from .transformers_loading import load_transformers_model, load_transformers_processor
 
-                if model is None:
-                    dtype_key = "torch_dtype"
-                    ver_parts = transformers_version.split(".")
-                    if len(ver_parts) >= 2 and int(ver_parts[0]) >= 4 and int(ver_parts[1]) >= 56:
-                        dtype_key = "dtype"
-                    model = Qwen2VLForConditionalGeneration.from_pretrained(
-                        model_path,
-                        device_map="auto",
-                        **{dtype_key: "auto"},  # type: ignore
-                    )
-                if processor is None:
-                    processor = AutoProcessor.from_pretrained(model_path, use_fast=True)
+                    if model is None:
+                        model = load_transformers_model(model_path)
+                    if processor is None:
+                        processor = load_transformers_processor(model_path)
+                except ImportError as exc:
+                    raise ImportError("Please install transformers to use the transformers backend.") from exc
 
         elif backend == "mlx-engine":
             if model is None or processor is None:
@@ -578,11 +568,11 @@ class MinerUClient:
                     raise ValueError("model_path must be provided when lmdeploy_engine is None.")
 
                 try:
-                    from lmdeploy.serve.vl_async_engine import VLAsyncEngine
+                    from lmdeploy import pipeline
                 except ImportError:
                     raise ImportError("Please install lmdeploy to use the lmdeploy-engine backend.")
 
-                lmdeploy_engine = VLAsyncEngine(
+                lmdeploy_engine = pipeline(
                     model_path,
                 )
 
@@ -611,6 +601,17 @@ class MinerUClient:
 
                 vllm_async_llm = AsyncLLM.from_engine_args(AsyncEngineArgs(model_path))
 
+        elif backend == "llama-cpp-engine":
+            # Unlike the other engine backends, llama_cpp_engine is never
+            # auto-constructed from model_path here: mineru_llama_cpp.Engine
+            # needs both a model and an mmproj path (not a single
+            # model_path), and this backend is designed to take an
+            # already-constructed Engine whose lifecycle the caller owns
+            # (see LlamaCppEngineVlmClient) -- construct it yourself and
+            # pass it in.
+            if llama_cpp_engine is None:
+                raise ValueError("llama_cpp_engine must be provided for the llama-cpp-engine backend.")
+
         self.client = new_vlm_client(
             backend=backend,
             model_name=model_name,
@@ -621,6 +622,7 @@ class MinerUClient:
             lmdeploy_engine=lmdeploy_engine,
             vllm_llm=vllm_llm,
             vllm_async_llm=vllm_async_llm,
+            llama_cpp_engine=llama_cpp_engine,
             system_prompt=system_prompt,
             allow_truncated_content=True,  # Allow truncated content for MinerU
             max_concurrency=max_concurrency,
@@ -663,7 +665,7 @@ class MinerUClient:
         self.debug = debug
         self.scored = scored
 
-        if backend in ("http-client", "vllm-async-engine", "lmdeploy-engine"):
+        if backend in ("http-client", "vllm-async-engine", "lmdeploy-engine", "llama-cpp-engine"):
             self.batching_mode = "concurrent"
         else:  # backend in ("transformers", "vllm-engine")
             self.batching_mode = "stepping"

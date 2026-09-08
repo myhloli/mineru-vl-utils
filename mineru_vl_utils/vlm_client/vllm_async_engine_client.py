@@ -20,9 +20,7 @@ from .base_client import (
     compute_confidence_metrics,
 )
 from .utils import aio_image_to_obj_list, gather_tasks
-from .vllm_engine_client import _build_raw_vllm_prompt, _patch_vllm_logprobs_overflow
-
-_patch_vllm_logprobs_overflow()
+from .vllm_engine_client import _build_raw_vllm_prompt
 
 
 class VllmAsyncEngineVlmClient(VlmClient):

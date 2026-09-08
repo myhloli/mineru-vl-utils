@@ -187,8 +187,8 @@ class TestComputeConfidenceMetrics:
 
 
 class TestPredictScored:
-    def test_renderer_outputs_are_passed_to_generate(self, client):
-        """验证新版 vLLM renderer 输出会直接传给 generate。"""
+    def test_raw_prompts_are_passed_to_generate(self, client):
+        """验证同步 generate 接收 raw prompt，由引擎内部执行一次渲染。"""
         renderer = MockRenderer()
         client.vllm_llm.renderer = renderer
         mock_output = MockRequestOutput(
@@ -200,9 +200,9 @@ class TestPredictScored:
 
         assert result == ["ok"]
         call_kwargs = client.vllm_llm.generate.call_args.kwargs
-        assert call_kwargs["prompts"] == [{"type": "tokens", "prompt_token_ids": [1]}]
-        assert renderer.calls[0][0]["prompt"]
-        assert "type" not in renderer.calls[0][0]
+        assert "prompt" in call_kwargs["prompts"][0]
+        assert "type" not in call_kwargs["prompts"][0]
+        assert renderer.calls == []
 
     def test_raw_prompt_is_used_when_renderer_is_unavailable(self, client):
         """验证旧版 vLLM 没有 renderer 时继续使用 raw prompt。"""
@@ -271,8 +271,8 @@ class TestPredictScored:
         for sp in sp_list:
             assert hasattr(sp, "logprobs") and sp.logprobs == 0
 
-    def test_predict_scored_uses_renderer_outputs(self, client):
-        """验证 predict_scored 也走 renderer 输出而不是 raw prompt。"""
+    def test_predict_scored_uses_raw_prompts(self, client):
+        """验证生成评分也把 raw prompt 交给同步引擎。"""
         renderer = MockRenderer()
         client.vllm_llm.renderer = renderer
         mock_output = MockRequestOutput(
@@ -289,8 +289,9 @@ class TestPredictScored:
         client.predict_scored(image=None, prompt="test")
 
         call_kwargs = client.vllm_llm.generate.call_args.kwargs
-        assert call_kwargs["prompts"] == [{"type": "tokens", "prompt_token_ids": [1]}]
-        assert "prompt" in renderer.calls[0][0]
+        assert "prompt" in call_kwargs["prompts"][0]
+        assert "type" not in call_kwargs["prompts"][0]
+        assert renderer.calls == []
 
     def test_batch(self, client):
         """batch_predict_scored 多个样本。"""
@@ -417,8 +418,8 @@ class TestScore:
             assert sp.prompt_logprobs == 0
             assert sp.max_tokens == 1
 
-    def test_score_uses_renderer_outputs(self, client):
-        """验证 score 的 prompt_logprobs 路径也走 renderer 输出。"""
+    def test_score_uses_raw_prompts(self, client):
+        """验证 prompt_logprobs 路径把 raw prompt 交给同步引擎。"""
         renderer = MockRenderer()
         client.vllm_llm.renderer = renderer
         scored_text = "answer"
@@ -447,8 +448,9 @@ class TestScore:
         client.score(image=None, scored_text=scored_text, prompt="q")
 
         call_kwargs = client.vllm_llm.generate.call_args.kwargs
-        assert call_kwargs["prompts"] == [{"type": "tokens", "prompt_token_ids": [1]}]
-        assert "prompt" in renderer.calls[0][0]
+        assert "prompt" in call_kwargs["prompts"][0]
+        assert "type" not in call_kwargs["prompts"][0]
+        assert renderer.calls == []
 
     def test_correct_label_lower_ppl_than_random(self, client, tokenizer):
         """模拟：正确标注的 PPL 应低于随机文本的 PPL。"""
@@ -505,7 +507,6 @@ class TestAsyncRendererCompatibility:
         assert result == "ok"
         call_kwargs = async_client.vllm_async_llm.generate_calls[0]
         assert call_kwargs["prompt"] == {"type": "tokens", "prompt_token_ids": [10]}
-        assert "prompt" in renderer.calls[0][0]
 
     def test_aio_predict_scored_uses_async_renderer_output(self, async_client):
         """验证 aio_predict_scored 使用 render_cmpl_async 的 EngineInput。"""

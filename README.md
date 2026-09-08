@@ -7,7 +7,7 @@ and handling responses from the MinerU Vision-Language Model.
 
 ## About Backends
 
-We provides 6 different backends(deployment modes):
+We provides 7 different backends(deployment modes):
 
 1. **http-client**: A HTTP client for interacting with the OpenAI-compatible model server.
 2. **transformers**: A backend for using HuggingFace Transformers models. (slow but simple to install)
@@ -15,6 +15,7 @@ We provides 6 different backends(deployment modes):
 4. **lmdeploy-engine**: A backend for using the LmDeploy engine.
 5. **vllm-engine**: A backend for using the VLLM synchronous batching engine.
 6. **vllm-async-engine**: A backend for using the VLLM asynchronous engine. (requires async programming)
+7. **llama-cpp-engine**: A backend for using in-process llama.cpp VLM inference via `mineru-llama-cpp` — no HTTP server, no subprocess. Install with `pip install mineru-vl-utils[llama-cpp]`.
 
 ## About Output Format
 
@@ -50,6 +51,11 @@ For `http-client` backend, just install the package via pip:
 pip install -U mineru-vl-utils
 ```
 
+The 2.0 development line requires Transformers 5.10.1 or newer within 5.x.
+Supported Python versions are 3.10–3.14. LMDeploy uses >=0.17.0,<0.18, vLLM uses >=0.19.1,<0.29.0, and MLX-VLM uses >=0.7.0,<0.8.0. MLX-VLM requires Transformers >=5.14; vLLM 0.19.1 excludes Python 3.14, which selects a newer release in the supported range.
+
+Synchronous vLLM clients pass raw prompts to `LLM.generate`; asynchronous clients use rendered engine inputs. MLX and LMDeploy cancellation waits for in-flight synchronous work before releasing the caller’s model lease.
+
 For `transformers` backend, install the package with the `transformers` extra:
 
 ```bash
@@ -72,6 +78,12 @@ For `lmdeploy-engine` backend, install the package with the `lmdeploy` extra:
 
 ```bash
 pip install -U "mineru-vl-utils[lmdeploy]"
+```
+
+For `llama-cpp-engine` backend, install the package with the `llama-cpp` extra:
+
+```bash
+pip install -U "mineru-vl-utils[llama-cpp]"
 ```
 
 > [!NOTE]
@@ -125,21 +137,17 @@ print(extracted_blocks)
 ### `transformers` Example
 
 ```python
-from transformers import AutoProcessor, Qwen2VLForConditionalGeneration
+from mineru_vl_utils.transformers_loading import load_transformers_model, load_transformers_processor
 from PIL import Image
 from mineru_vl_utils import MinerUClient
 
-# for transformers>=4.56.0
-model = Qwen2VLForConditionalGeneration.from_pretrained(
+# Requires transformers>=5.10.1,<6
+model = load_transformers_model(
     "opendatalab/MinerU2.5-2509-1.2B",
-    dtype="auto",
     device_map="auto"
 )
 
-processor = AutoProcessor.from_pretrained(
-    "opendatalab/MinerU2.5-2509-1.2B",
-    use_fast=True
-)
+processor = load_transformers_processor("opendatalab/MinerU2.5-2509-1.2B")
 
 client = MinerUClient(
     backend="transformers",
@@ -152,16 +160,6 @@ extracted_blocks = client.two_step_extract(image)
 print(extracted_blocks)
 ```
 
-If you used an old version of `transformers`(`transformers<4.56.0`),
-you need to use `torch_dtype` instead of `dtype`.
-
-```python
-model = Qwen2VLForConditionalGeneration.from_pretrained(
-    "opendatalab/MinerU2.5-2509-1.2B",
-    torch_dtype="auto",
-    device_map="auto"
-)
-```
 
 ### `mlx-engine` Example
 
@@ -185,52 +183,41 @@ print(extracted_blocks)
 
 ### `lmdeploy-engine` Example
 
-For default inference engine(`turbomind` by now).
+Version 2.0 accepts the public `Pipeline` from LMDeploy 0.17. The parameter name remains `lmdeploy_engine`.
+The context manager closes the engine after inference.
 
 ```python
-from lmdeploy.serve.vl_async_engine import VLAsyncEngine
+from lmdeploy import pipeline
 from mineru_vl_utils import MinerUClient
 from PIL import Image
 
 if __name__ == "__main__":
-    lmdeploy_engine = VLAsyncEngine("opendatalab/MinerU2.5-2509-1.2B")
-
-    client = MinerUClient(
-        backend="lmdeploy-engine",
-        lmdeploy_engine=lmdeploy_engine,
-    )
-
-    image = Image.open("/path/to/the/test/image.png")
-    extracted_blocks = client.two_step_extract(image)
-    print(extracted_blocks)
+    with pipeline("opendatalab/MinerU2.5-2509-1.2B") as lmdeploy_engine:
+        client = MinerUClient(backend="lmdeploy-engine", lmdeploy_engine=lmdeploy_engine)
+        image = Image.open("/path/to/the/test/image.png")
+        print(client.two_step_extract(image))
 ```
 
-For pytorch inference engine and `ascend` accelerator.
+For the PyTorch engine on CUDA:
 
 ```python
-from lmdeploy import PytorchEngineConfig
-from lmdeploy.serve.vl_async_engine import VLAsyncEngine
+from lmdeploy import PytorchEngineConfig, pipeline
 from mineru_vl_utils import MinerUClient
 from PIL import Image
 
 if __name__ == "__main__":
-    lmdeploy_engine = VLAsyncEngine(
+    with pipeline(
         "opendatalab/MinerU2.5-2509-1.2B",
-        backend="pytorch",
-        backend_config=PytorchEngineConfig(
-            device_type="ascend",
-        ),
-    )
-
-    client = MinerUClient(
-        backend="lmdeploy-engine",
-        lmdeploy_engine=lmdeploy_engine,
-    )
-
-    image = Image.open("/path/to/the/test/image.png")
-    extracted_blocks = client.two_step_extract(image)
-    print(extracted_blocks)
+        backend_config=PytorchEngineConfig(device_type="cuda"),
+    ) as lmdeploy_engine:
+        client = MinerUClient(backend="lmdeploy-engine", lmdeploy_engine=lmdeploy_engine)
+        image = Image.open("/path/to/the/test/image.png")
+        print(client.two_step_extract(image))
 ```
+
+Async calls execute `Pipeline.infer` in worker threads. Cancellation waits for an in-flight call to finish before
+releasing its concurrency slot, so callers can safely close the shared engine afterward.
+Legacy accelerator images remain on their previously validated 1.x stack until separately migrated.
 
 ### `vllm-engine` Example
 
@@ -291,6 +278,23 @@ async def main():
 asyncio.run(main())
 
 async_llm.shutdown()
+```
+
+### `llama-cpp-engine` Example
+
+This backend uses the in-process `mineru_llama_cpp.Engine` — no HTTP server needed.
+The caller creates and manages the Engine lifecycle.
+
+```python
+from PIL import Image
+from mineru_llama_cpp import Engine
+from mineru_vl_utils import MinerUClient
+
+with Engine("/path/to/model.gguf", "/path/to/mmproj.gguf") as engine:
+    client = MinerUClient(backend="llama-cpp-engine", llama_cpp_engine=engine)
+    image = Image.open("/path/to/the/test/image.png")
+    extracted_blocks = client.two_step_extract(image)
+    print(extracted_blocks)
 ```
 
 ## Other APIs
