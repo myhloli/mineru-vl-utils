@@ -4,7 +4,7 @@ import re
 from base64 import b64decode, b64encode
 from collections.abc import Coroutine
 from io import BytesIO
-from typing import Any, Sequence, TypeVar
+from typing import Any, Callable, ParamSpec, Sequence, TypeVar
 
 import aiofiles
 import httpx
@@ -14,6 +14,26 @@ from tqdm import tqdm
 from .base_client import ImageType, RequestError, SingleImageType
 
 T = TypeVar("T")
+P = ParamSpec("P")
+
+
+async def run_in_thread_until_complete(function: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> T:
+    """取消时等待同步线程结束，避免调用方释放仍被推理线程使用的模型租约。"""
+    work = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
+    try:
+        return await asyncio.shield(work)
+    except asyncio.CancelledError:
+        while not work.done():
+            try:
+                await asyncio.shield(work)
+            except asyncio.CancelledError:
+                continue
+            except Exception:
+                break
+        if not work.cancelled():
+            work.exception()
+        raise
+
 
 _timeout = int(os.getenv("REQUEST_TIMEOUT", "3"))
 _file_exts = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".pdf")

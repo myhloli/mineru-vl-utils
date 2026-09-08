@@ -1,5 +1,6 @@
 # Copyright (c) Opendatalab. All rights reserved.
 import asyncio
+import threading
 from typing import Sequence
 
 from tqdm import tqdm
@@ -13,6 +14,7 @@ from .base_client import (
     UnsupportedError,
     VlmClient,
 )
+from .utils import run_in_thread_until_complete
 
 
 class MlxVlmClient(VlmClient):
@@ -28,6 +30,7 @@ class MlxVlmClient(VlmClient):
         batch_size: int = 1,
         use_tqdm: bool = True,
     ):
+        """保存 MLX 模型，并以实例锁串行化同一模型的生成与缓存访问。"""
         super().__init__(
             prompt=prompt,
             system_prompt=system_prompt,
@@ -36,6 +39,7 @@ class MlxVlmClient(VlmClient):
             allow_truncated_content=allow_truncated_content,
         )
         self.model = model
+        self._generation_lock = threading.Lock()
         self.processor = processor
         self.batch_size = batch_size
         self.use_tqdm = use_tqdm
@@ -95,6 +99,7 @@ class MlxVlmClient(VlmClient):
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
     ) -> str:
+        """执行单图预测，共享模型的生成操作在同一时间只允许一个线程进入。"""
         has_image = image is not None
         if has_image and not isinstance(image, SingleImageType):
             raise UnsupportedError("MlxVlmClient haven't support non-single image yet.")
@@ -107,13 +112,14 @@ class MlxVlmClient(VlmClient):
 
         generate_kwargs = self.build_generate_kwargs(sampling_params)
 
-        response = self.generate(
-            model=self.model,
-            processor=self.processor,
-            prompt=chat_prompt,
-            image=image if has_image else None,
-            **generate_kwargs,
-        )
+        with self._generation_lock:
+            response = self.generate(
+                model=self.model,
+                processor=self.processor,
+                prompt=chat_prompt,
+                image=image if has_image else None,
+                **generate_kwargs,
+            )
         return response.text
 
     def batch_predict(
@@ -151,9 +157,8 @@ class MlxVlmClient(VlmClient):
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
     ) -> str:
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            None,
+        """在线程中生成，取消后等在途工作结束再归还模型租约。"""
+        return await run_in_thread_until_complete(
             self.predict,
             image,
             prompt,
@@ -171,10 +176,8 @@ class MlxVlmClient(VlmClient):
         use_tqdm=False,
         tqdm_desc: str | None = None,
     ) -> list[str]:
-        return await asyncio.to_thread(
-            self.batch_predict,
-            images,
-            prompts,
-            sampling_params,
-            priority,
-        )
+        """批量调用同样等待线程完成；调用方提供的并发名额覆盖完整生命周期。"""
+        if semaphore is not None:
+            async with semaphore:
+                return await run_in_thread_until_complete(self.batch_predict, images, prompts, sampling_params, priority)
+        return await run_in_thread_until_complete(self.batch_predict, images, prompts, sampling_params, priority)
