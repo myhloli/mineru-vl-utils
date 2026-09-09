@@ -1,8 +1,9 @@
-import atexit
 import json
 import os
 import shutil
 import tempfile
+from contextlib import contextmanager
+from collections.abc import Iterator
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -10,16 +11,7 @@ from typing import Any
 from loguru import logger
 
 _QWEN_VL_MODEL_TYPES = {"qwen2_vl", "qwen2_5_vl"}
-_COMPAT_MODEL_DIRS: list[Path] = []
 _LM_HEAD_WEIGHT_KEYS = {"lm_head.weight", "language_model.lm_head.weight"}
-
-
-def _cleanup_compat_model_dirs() -> None:
-    for compat_dir in _COMPAT_MODEL_DIRS:
-        shutil.rmtree(compat_dir, ignore_errors=True)
-
-
-atexit.register(_cleanup_compat_model_dirs)
 
 
 def _build_mlx_compatible_config(config: dict[str, Any]) -> dict[str, Any]:
@@ -50,9 +42,7 @@ def _iter_safetensors_paths(model_path: Path) -> list[Path]:
     return sorted(
         path
         for path in model_path.glob("*.safetensors")
-        if not path.name.startswith(".")
-        and not path.name.startswith("._")
-        and path.name != "consolidated.safetensors"
+        if not path.name.startswith(".") and not path.name.startswith("._") and path.name != "consolidated.safetensors"
     )
 
 
@@ -74,6 +64,8 @@ def _model_has_explicit_lm_head(model_path: Path) -> bool:
 
 
 def _prepare_mlx_model_path(model_path: Path) -> Path:
+    """构造独立配置目录，保留原始模型与权重文件。"""
+    model_path = model_path.resolve()
     with open(model_path / "config.json", encoding="utf-8") as f:
         config = json.load(f)
 
@@ -88,16 +80,18 @@ def _prepare_mlx_model_path(model_path: Path) -> Path:
         return model_path
 
     compat_dir = Path(tempfile.mkdtemp(prefix="mineru-mlx-compat-"))
-    for child in model_path.iterdir():
-        if child.name == "config.json":
-            continue
-        os.symlink(child, compat_dir / child.name, target_is_directory=child.is_dir())
+    try:
+        for child in model_path.iterdir():
+            if child.name == "config.json":
+                continue
+            os.symlink(child, compat_dir / child.name, target_is_directory=child.is_dir())
+        patched_config = _build_mlx_compatible_config(config)
+        with open(compat_dir / "config.json", "w", encoding="utf-8") as f:
+            json.dump(patched_config, f, ensure_ascii=False, indent=2)
+    except BaseException:
+        shutil.rmtree(compat_dir, ignore_errors=True)
+        raise
 
-    patched_config = _build_mlx_compatible_config(config)
-    with open(compat_dir / "config.json", "w", encoding="utf-8") as f:
-        json.dump(patched_config, f, ensure_ascii=False, indent=2)
-
-    _COMPAT_MODEL_DIRS.append(compat_dir)
     logger.debug(
         "Prepared MLX compatibility model dir for {} at {}.",
         model_path,
@@ -106,19 +100,35 @@ def _prepare_mlx_model_path(model_path: Path) -> Path:
     return compat_dir
 
 
-def load_mlx_model(path_or_hf_repo: str, **kwargs):
-    try:
-        from mlx_vlm import load as mlx_load
-        from mlx_vlm.utils import get_model_path
-    except ImportError:
-        raise ImportError("Please install mlx-vlm to use the mlx-engine backend.")
+@contextmanager
+def prepare_mlx_model_path(
+    path_or_hf_repo: str | Path,
+    *,
+    revision: str | None = None,
+    force_download: bool = False,
+) -> Iterator[Path]:
+    """解析模型路径并管理兼容目录；调用方须在使用模型期间保持上下文。"""
+    from mlx_vlm.utils import get_model_path
 
-    revision = kwargs.get("revision")
-    force_download = kwargs.get("force_download", False)
-    model_path = get_model_path(
-        path_or_hf_repo,
-        revision=revision,
-        force_download=force_download,
-    )
+    model_path = Path(get_model_path(str(path_or_hf_repo), revision=revision, force_download=force_download)).resolve()
     prepared_path = _prepare_mlx_model_path(model_path)
-    return mlx_load(str(prepared_path), **kwargs)
+    try:
+        yield prepared_path
+    finally:
+        if prepared_path != model_path:
+            shutil.rmtree(prepared_path, ignore_errors=True)
+
+
+def load_mlx_model(path_or_hf_repo: str, **kwargs: Any) -> Any:
+    """通过共享路径准备接口加载模型，并及时清理临时配置目录。"""
+    from mlx_vlm import load as mlx_load
+
+    with prepare_mlx_model_path(
+        path_or_hf_repo,
+        revision=kwargs.get("revision"),
+        force_download=kwargs.get("force_download", False),
+    ) as prepared_path:
+        return mlx_load(str(prepared_path), **kwargs)
+
+
+__all__ = ["load_mlx_model", "prepare_mlx_model_path"]
