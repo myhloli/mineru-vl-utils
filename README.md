@@ -330,6 +330,14 @@ class MinerUClient:
         ...
 ```
 
+## Inference progress
+
+`MinerUClient(..., use_tqdm=True)` enables inference progress by default, including local LMDeploy and remote HTTP batch extraction. Set `use_tqdm=False` to disable it. Progress is written to the terminal of the process running the client; it is not an HTTP response field.
+
+Synchronous backend batch methods use the client instance setting. Supported asynchronous backend batch methods accept their own `use_tqdm` (default `False`) and `tqdm_desc` arguments; high-level `MinerUClient` batch methods pass the instance setting to the appropriate stage. MLX and Transformers honor these per-call settings without changing shared client state.
+
+LMDeploy and synchronous vLLM retain their native per-batch progress. HTTP extraction counts completed requests and preserves input order. Concurrent two-step extraction retains its page-level `Two Step Extraction` bar, with internal requests kept silent. Empty inference batches do not display progress, and skipped blocks do not count as inference requests. Loading models and preparing inputs are separate from inference completion.
+
 ## Limitations
 
 The `transformers` backend is slow and not suitable for production use.

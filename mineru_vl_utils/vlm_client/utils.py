@@ -173,6 +173,10 @@ async def gather_tasks(
     use_tqdm=False,
     tqdm_desc: str | None = None,
 ) -> list[T]:
+    """按完成顺序更新进度并还原结果顺序；空任务不创建进度条。"""
+    if not tasks:
+        return []
+
     async def indexed(idx: int, task: Coroutine[Any, Any, T]):
         output = await task
         return (idx, output)

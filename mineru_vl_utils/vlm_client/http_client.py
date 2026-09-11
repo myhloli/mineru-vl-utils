@@ -66,6 +66,8 @@ class HttpVlmClient(VlmClient):
         max_retries: int = 3,
         retry_backoff_factor: float = 0.5,
         skip_model_name_checking: bool = False,
+        *,
+        use_tqdm: bool = True,
     ) -> None:
         super().__init__(
             prompt=prompt,
@@ -74,6 +76,7 @@ class HttpVlmClient(VlmClient):
             text_before_image=text_before_image,
             allow_truncated_content=allow_truncated_content,
         )
+        self.use_tqdm = use_tqdm
         self.max_concurrency = max_concurrency
         self.debug = debug
 
@@ -380,6 +383,7 @@ class HttpVlmClient(VlmClient):
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         priority: Sequence[int | None] | int | None = None,
     ) -> list[str]:
+        """同步批量请求复用异步完成计数，并传递实例进度配置。"""
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -390,6 +394,8 @@ class HttpVlmClient(VlmClient):
             prompts=prompts,
             sampling_params=sampling_params,
             priority=priority,
+            use_tqdm=self.use_tqdm,
+            tqdm_desc="VLM Predict",
         )
 
         if loop is not None:

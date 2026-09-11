@@ -271,7 +271,27 @@ class MlxVlmClient(VlmClient):
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         priority: Sequence[int | None] | int | None = None,
     ) -> list[str]:
-        """按模态与有效采样参数分组，受 batch/像素预算约束并还原输入顺序。"""
+        """同步批量推理使用实例进度配置，不修改共享客户端状态。"""
+        return self._batch_predict(
+            images,
+            prompts,
+            sampling_params,
+            priority,
+            use_tqdm=self.use_tqdm,
+            tqdm_desc=None,
+        )
+
+    def _batch_predict(
+        self,
+        images: Sequence[ImageType],
+        prompts: Sequence[str] | str = "",
+        sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
+        priority: Sequence[int | None] | int | None = None,
+        *,
+        use_tqdm: bool,
+        tqdm_desc: str | None,
+    ) -> list[str]:
+        """按模态与采样参数分组，保留批次/像素预算和结果顺序；进度配置仅作用于本次调用。"""
         count = len(images)
         for name, values in (("prompts", prompts), ("sampling_params", sampling_params), ("priority", priority)):
             if isinstance(values, Sequence) and not isinstance(values, str) and len(values) != count:
@@ -290,7 +310,7 @@ class MlxVlmClient(VlmClient):
             # 回退档保持原有调用顺序，避免分组改变随机采样的消费顺序。
             groups = {(idx,): [idx] for idx in range(count)}
         outputs = [""] * count
-        with tqdm(total=count, desc="Predict", disable=not self.use_tqdm) as pbar:
+        with tqdm(total=count, desc=tqdm_desc if tqdm_desc is not None else "Predict", disable=not use_tqdm) as pbar:
             for indices in groups.values():
                 for batch in self._iter_batches(indices, image_objs):
                     texts = self._predict_batch(
@@ -332,8 +352,24 @@ class MlxVlmClient(VlmClient):
         """批量调用同样等待线程完成；调用方提供的并发名额覆盖完整生命周期。"""
         if semaphore is not None:
             async with semaphore:
-                return await run_in_thread_until_complete(self.batch_predict, images, prompts, sampling_params, priority)
-        return await run_in_thread_until_complete(self.batch_predict, images, prompts, sampling_params, priority)
+                return await run_in_thread_until_complete(
+                    self._batch_predict,
+                    images,
+                    prompts,
+                    sampling_params,
+                    priority,
+                    use_tqdm=use_tqdm,
+                    tqdm_desc=tqdm_desc,
+                )
+        return await run_in_thread_until_complete(
+            self._batch_predict,
+            images,
+            prompts,
+            sampling_params,
+            priority,
+            use_tqdm=use_tqdm,
+            tqdm_desc=tqdm_desc,
+        )
 
 
 __all__ = ["MlxVlmClient"]

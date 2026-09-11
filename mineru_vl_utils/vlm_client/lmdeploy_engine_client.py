@@ -100,6 +100,25 @@ class LmdeployEngineVlmClient(VlmClient):
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         priority: Sequence[int | None] | int | None = None,
     ) -> list[str]:
+        """同步批量推理使用实例进度配置，不修改共享客户端状态。"""
+        return self._batch_predict(
+            images,
+            prompts,
+            sampling_params,
+            priority,
+            use_tqdm=self.use_tqdm,
+        )
+
+    def _batch_predict(
+        self,
+        images: Sequence[ImageType],
+        prompts: Sequence[str] | str = "",
+        sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
+        priority: Sequence[int | None] | int | None = None,
+        *,
+        use_tqdm: bool,
+    ) -> list[str]:
+        """使用调用级进度选项执行原有批处理，避免并发调用串用开关。"""
         if not isinstance(prompts, str):
             assert len(prompts) == len(images), "Length of prompts and images must match."
         if isinstance(sampling_params, Sequence):
@@ -149,6 +168,7 @@ class LmdeployEngineVlmClient(VlmClient):
                         [item[1] for item in batch],
                         [item[2] for item in batch],
                         priority=current_priority,
+                        use_tqdm=use_tqdm,
                     )
                 )
 
@@ -160,6 +180,8 @@ class LmdeployEngineVlmClient(VlmClient):
         chat_prompts: list[str],
         gen_configs: list[Any],
         priority: int | None = None,
+        *,
+        use_tqdm: bool,
     ) -> list[str]:
         """通过公开 Pipeline 接口推理，并将后端错误传播给同步与异步调用方。"""
         lmdeploy_prompts = [(prompt, image) if image is not None else prompt for prompt, image in zip(chat_prompts, image_objs)]
@@ -167,6 +189,7 @@ class LmdeployEngineVlmClient(VlmClient):
         outputs = self.lmdeploy_engine.infer(
             lmdeploy_prompts,  # type: ignore
             gen_config=gen_configs,
+            use_tqdm=use_tqdm,
             **generate_kwargs,
         )
         if len(outputs) != len(lmdeploy_prompts):
@@ -183,7 +206,15 @@ class LmdeployEngineVlmClient(VlmClient):
         priority: int | None = None,
     ) -> str:
         """在线程中复用 Pipeline；取消时等待在途调用结束，再释放并发名额和共享引擎租约。"""
-        return await run_in_thread_until_complete(self.predict, image, prompt, sampling_params, priority)
+        outputs = await run_in_thread_until_complete(
+            self._batch_predict,
+            [image],
+            [prompt],
+            [sampling_params],
+            [priority],
+            use_tqdm=False,
+        )
+        return outputs[0]
 
     async def aio_batch_predict(
         self,

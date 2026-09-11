@@ -272,3 +272,84 @@ def test_model_loader_preserves_explicit_untied_root_config(monkeypatch: pytest.
     monkeypatch.setattr(transformers.PretrainedConfig, "get_config_dict", lambda path: ({"tie_word_embeddings": False}, {}))
     monkeypatch.setattr(transformers.Qwen2VLForConditionalGeneration, "from_pretrained", lambda path, **kwargs: config)
     assert load_transformers_model("model").tie_word_embeddings is False
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("use_async", [False, True])
+@pytest.mark.parametrize("two_step", [False, True])
+def test_lmdeploy_extraction_progress_ownership(
+    pipeline_type: type,
+    monkeypatch: pytest.MonkeyPatch,
+    enabled: bool,
+    use_async: bool,
+    two_step: bool,
+) -> None:
+    """运行真实高层布局/内容抽取，确认标准同步有进度、异步与两阶段不嵌套。"""
+    from unittest.mock import MagicMock
+    from PIL import Image
+    from mineru_vl_utils import MinerUClient
+    from mineru_vl_utils.structs import ContentBlock
+    from mineru_vl_utils.vlm_client import utils
+
+    pipeline = pipeline_type()
+    client = MinerUClient(backend="lmdeploy-engine", lmdeploy_engine=pipeline, use_tqdm=enabled)
+    original_infer = pipeline.infer
+    bars = []
+
+    def infer(prompts: list[Any], **kwargs: Any) -> list[Any]:
+        """生成合法布局和内容，仍通过已有替身记录参数与线程生命周期。"""
+        responses = original_infer(prompts, **kwargs)
+        for response in responses:
+            response.text = (
+                "<|box_start|>0 0 1000 1000<|box_end|><|ref_start|>text<|ref_end|>"
+                if response.text == client.prompts["[layout]"]
+                else "recognized"
+            )
+        return responses
+
+    def progress(**kwargs: Any) -> MagicMock:
+        """记录聚合进度，后端进度通过 infer 的参数独立验证。"""
+        bar = MagicMock()
+        bar.__enter__.return_value = bar
+        bars.append((kwargs, bar))
+        return bar
+
+    monkeypatch.setattr(pipeline, "infer", infer)
+    monkeypatch.setattr(utils, "tqdm", progress)
+    images = [Image.new("RGB", (32, 32)) for _ in range(2)]
+    try:
+        if two_step:
+            results = (
+                asyncio.run(client.aio_batch_two_step_extract(images)) if use_async else client.batch_two_step_extract(images)
+            )
+        else:
+            blocks = [[ContentBlock("text", [0, 0, 1, 1])] for _ in images]
+            results = (
+                asyncio.run(client.aio_batch_extract_with_layout(images, blocks))
+                if use_async
+                else client.batch_extract_with_layout(images, blocks)
+            )
+        assert [page[0].content for page in results] == ["recognized", "recognized"]
+        assert pipeline.calls
+        assert all(call["use_tqdm"] is (enabled and not use_async and not two_step) for call in pipeline.calls)
+        visible = [(options, bar) for options, bar in bars if not options["disable"]]
+        if enabled and (two_step or use_async):
+            assert len(visible) == 1
+            options, bar = visible[0]
+            assert options["total"] == 2
+            assert options["desc"] == ("Two Step Extraction" if two_step else "External Layout Extraction")
+            assert sum(call.args[0] for call in bar.update.call_args_list) == 2
+        else:
+            assert not visible
+    finally:
+        for image in images:
+            image.close()
+
+
+def test_lmdeploy_empty_batch_does_not_call_pipeline(pipeline_type: type) -> None:
+    """空请求不进入 Pipeline，自然不会创建后端进度条。"""
+    pipeline = pipeline_type()
+    client = LmdeployEngineVlmClient(pipeline)
+    assert client.batch_predict([]) == []
+    assert asyncio.run(client.aio_batch_predict([], use_tqdm=True)) == []
+    assert not pipeline.calls
