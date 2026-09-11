@@ -5,6 +5,8 @@
 """
 
 import asyncio
+import threading
+from unittest.mock import MagicMock
 
 import pytest
 from mineru_llama_cpp import EngineError, GenerateResult, InvalidRequestError
@@ -13,6 +15,7 @@ from PIL import Image
 
 from mineru_vl_utils.vlm_client.base_client import RequestError, SamplingParams, ServerError
 from mineru_vl_utils.vlm_client.llama_cpp_engine_client import LlamaCppEngineVlmClient
+from mineru_vl_utils.vlm_client import llama_cpp_engine_client
 
 
 def _make_client(mock_engine: LlamaCppEngine) -> LlamaCppEngineVlmClient:
@@ -243,3 +246,131 @@ def test_constructor_rejects_none_engine():
 def test_constructor_rejects_wrong_type():
     with pytest.raises(ValueError):
         LlamaCppEngineVlmClient(llama_cpp_engine=object())
+
+
+def test_batch_progress_updates_before_slow_first_request(mock_engine, image, monkeypatch):
+    """首个请求等待进度更新后才完成，验证进度不受输入顺序阻塞且结果不串位。"""
+    client = _make_client(mock_engine)
+    progress_seen = threading.Event()
+    bar = MagicMock()
+    bar.__enter__.return_value = bar
+    bar.update.side_effect = lambda count: progress_seen.set()
+    progress_factory = MagicMock(return_value=bar)
+    monkeypatch.setattr(llama_cpp_engine_client, "tqdm", progress_factory)
+
+    def predict(image, prompt, params, priority):
+        """模拟第一个请求比后续请求慢，并核验进度先于首项返回。"""
+        if prompt == "first":
+            assert progress_seen.wait(5), "Progress was blocked by the first request"
+        return prompt
+
+    monkeypatch.setattr(client, "predict", predict)
+    assert client.batch_predict([image] * 3, ["first", "second", "third"]) == ["first", "second", "third"]
+    progress_factory.assert_called_once_with(total=3, desc="VLM Predict", disable=False)
+    assert [call.args for call in bar.update.call_args_list] == [(1,), (1,), (1,)]
+    bar.__exit__.assert_called_once_with(None, None, None)
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_client_factory_forwards_progress_switch(mock_engine, image, monkeypatch, capsys, enabled):
+    """从公开客户端构造链传递开关，确认同步推理只在启用时输出进度。"""
+    from mineru_vl_utils import MinerUClient
+
+    client = MinerUClient(backend="llama-cpp-engine", llama_cpp_engine=mock_engine, use_tqdm=enabled)
+    assert client.client.use_tqdm is enabled
+    monkeypatch.setattr(mock_engine, "generate", lambda messages, sp: _stub_generate_result("ok"))
+    assert client.client.batch_predict([image]) == ["ok"]
+    assert ("VLM Predict" in capsys.readouterr().err) is enabled
+
+
+def test_empty_batch_does_not_start_threads_or_progress(mock_engine, monkeypatch):
+    """空输入不创建线程池或进度条。"""
+    executor = MagicMock(side_effect=AssertionError("Unexpected executor"))
+    progress = MagicMock(side_effect=AssertionError("Unexpected progress"))
+    monkeypatch.setattr(llama_cpp_engine_client, "ThreadPoolExecutor", executor)
+    monkeypatch.setattr(llama_cpp_engine_client, "tqdm", progress)
+    assert _make_client(mock_engine).batch_predict([]) == []
+    executor.assert_not_called()
+    progress.assert_not_called()
+
+
+def test_batch_failure_closes_progress_and_propagates(mock_engine, image, monkeypatch):
+    """推理失败保持原异常，并退出进度条上下文。"""
+    client = _make_client(mock_engine)
+    bar = MagicMock()
+    bar.__enter__.return_value = bar
+    monkeypatch.setattr(llama_cpp_engine_client, "tqdm", MagicMock(return_value=bar))
+    monkeypatch.setattr(client, "predict", MagicMock(side_effect=ServerError("inference failed")))
+    with pytest.raises(ServerError, match="inference failed"):
+        client.batch_predict([image])
+    assert bar.__exit__.call_args.args[0] is ServerError
+    bar.update.assert_not_called()
+
+
+@pytest.mark.parametrize("use_async", [False, True])
+def test_two_step_keeps_page_progress_and_shared_concurrency(mock_engine, monkeypatch, use_async):
+    """两阶段提取共享布局和内容请求的并发上限，仅展示一个按页统计的进度条。"""
+    from mineru_vl_utils import MinerUClient
+    from mineru_vl_utils.structs import ContentBlock
+    from mineru_vl_utils.vlm_client import utils
+
+    client = MinerUClient(backend="llama-cpp-engine", llama_cpp_engine=mock_engine, max_concurrency=2)
+    assert client.batching_mode == "concurrent"
+    active = 0
+    peak = 0
+    calls = []
+    bars = []
+
+    async def predict(image, prompt="", sampling_params=None, priority=None):
+        """记录布局和内容请求的总并发，使用不同延迟制造完成顺序差异。"""
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        page = image.width
+        calls.append((page, prompt))
+        try:
+            await asyncio.sleep(0.002 * (4 - page))
+            return str(page) if prompt == client.prompts["[layout]"] else f"{page}:{prompt}"
+        finally:
+            active -= 1
+
+    async def prepare_layout(executor, image):
+        """保留页标识，避免测试依赖实际图像缩放。"""
+        return image
+
+    async def parse_layout(executor, text):
+        """为每页构造两个内容块，核验页和块的对应关系。"""
+        return [ContentBlock("text", [0, 0, 1, 0.5]), ContentBlock("text", [0, 0.5, 1, 1])]
+
+    async def prepare_extract(executor, image, layout, not_extract_list, image_analysis):
+        """将每页的两个块映射到带有页标识的模拟内容请求。"""
+        return [image, image], ["a", "b"], [None, None], [0, 1]
+
+    async def post_process(executor, layout):
+        """返回已填充内容的块，隔离与本次调度无关的后处理。"""
+        return layout
+
+    def progress_factory(**kwargs):
+        """记录每层进度条的启用状态和完成计数。"""
+        bar = MagicMock()
+        bar.__enter__.return_value = bar
+        bars.append((kwargs, bar))
+        return bar
+
+    monkeypatch.setattr(client.client, "aio_predict", predict)
+    monkeypatch.setattr(client.helper, "aio_prepare_for_layout", prepare_layout)
+    monkeypatch.setattr(client.helper, "aio_parse_layout_output", parse_layout)
+    monkeypatch.setattr(client.helper, "aio_prepare_for_extract", prepare_extract)
+    monkeypatch.setattr(client.helper, "aio_post_process", post_process)
+    monkeypatch.setattr(utils, "tqdm", progress_factory)
+    monkeypatch.setattr(llama_cpp_engine_client, "tqdm", MagicMock(side_effect=AssertionError("Nested sync progress")))
+    images = [Image.new("RGB", (page, 4)) for page in (1, 2, 3)]
+    results = asyncio.run(client.aio_batch_two_step_extract(images)) if use_async else client.batch_two_step_extract(images)
+    assert [[block.content for block in page] for page in results] == [[f"{p}:a", f"{p}:b"] for p in (1, 2, 3)]
+    assert peak == 2
+    assert len(calls) == 9
+    enabled_bars = [(options, bar) for options, bar in bars if not options["disable"]]
+    assert len(enabled_bars) == 1
+    options, bar = enabled_bars[0]
+    assert options == {"total": 3, "desc": "Two Step Extraction", "disable": False}
+    assert sum(call.args[0] for call in bar.update.call_args_list) == 3
