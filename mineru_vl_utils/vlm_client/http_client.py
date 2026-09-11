@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import re
+import threading
 from enum import Enum
 from typing import AsyncIterable, Iterable, Sequence
 
@@ -66,6 +67,8 @@ class HttpVlmClient(VlmClient):
         max_retries: int = 3,
         retry_backoff_factor: float = 0.5,
         skip_model_name_checking: bool = False,
+        *,
+        use_tqdm: bool = True,
     ) -> None:
         super().__init__(
             prompt=prompt,
@@ -74,6 +77,7 @@ class HttpVlmClient(VlmClient):
             text_before_image=text_before_image,
             allow_truncated_content=allow_truncated_content,
         )
+        self.use_tqdm = use_tqdm
         self.max_concurrency = max_concurrency
         self.debug = debug
 
@@ -104,16 +108,21 @@ class HttpVlmClient(VlmClient):
         self.retry_backoff_factor = retry_backoff_factor
 
         self._client = self._new_client()
-        self._aio_client_sem = asyncio.Semaphore(1)
+        self._client_lock = threading.RLock()
+        self._closed = False
         self._aio_client_cache: dict[asyncio.AbstractEventLoop, httpx.AsyncClient] = {}
 
-        model_name = model_name or os.getenv("MINERU_VL_MODEL_NAME")
-        if model_name:
-            if not skip_model_name_checking:
-                self._check_model_name(self.server_url, model_name)
-            self.model_name = model_name
-        else:
-            self.model_name = self._get_model_name(self.server_url)
+        try:
+            model_name = model_name or os.getenv("MINERU_VL_MODEL_NAME")
+            if model_name:
+                if not skip_model_name_checking:
+                    self._check_model_name(self.server_url, model_name)
+                self.model_name = model_name
+            else:
+                self.model_name = self._get_model_name(self.server_url)
+        except BaseException:
+            self._client.close()
+            raise
 
     @property
     def chat_url(self) -> str:
@@ -170,18 +179,52 @@ class HttpVlmClient(VlmClient):
         )
 
     async def _aio_client(self) -> httpx.AsyncClient:
+        """每个循环独立缓存连接池，禁止静默丢弃其他循环的连接。"""
         loop = asyncio.get_running_loop()
-        aio_client = self._aio_client_cache.get(loop)
-        if aio_client is not None:
-            return aio_client
-        async with self._aio_client_sem:
-            aio_client = self._aio_client_cache.get(loop)
-            if aio_client is not None:
-                return aio_client
-            aio_client = await self._new_aio_client()
+        with self._client_lock:
+            if self._closed:
+                raise RuntimeError("HTTP VLM client is closed")
+            client = self._aio_client_cache.get(loop)
+            if client is not None:
+                return client
+        client = await self._new_aio_client()
+        with self._client_lock:
+            closed = self._closed
+            if not closed:
+                existing = self._aio_client_cache.setdefault(loop, client)
+        if closed:
+            await client.aclose()
+            raise RuntimeError("HTTP VLM client is closed")
+        if existing is not client:
+            await client.aclose()
+        return existing
+
+    async def aclose_current_loop(self) -> None:
+        """关闭当前循环创建的连接，供临时同步桥接在循环退出前清理。"""
+        with self._client_lock:
+            client = self._aio_client_cache.pop(asyncio.get_running_loop(), None)
+        if client is not None:
+            await client.aclose()
+
+    async def aclose(self) -> None:
+        """关闭自有 HTTP 连接；跨循环连接交回仍运行的所属循环关闭。"""
+        loop = asyncio.get_running_loop()
+        with self._client_lock:
+            if self._closed:
+                return
+            clients = list(self._aio_client_cache.items())
+            if any(owner is not loop and not owner.is_running() for owner, _ in clients):
+                raise RuntimeError("Close HTTP clients before their owning event loops stop")
+            self._closed = True
             self._aio_client_cache.clear()
-            self._aio_client_cache[loop] = aio_client
-            return aio_client
+        try:
+            for owner, client in clients:
+                if owner is loop:
+                    await client.aclose()
+                else:
+                    await asyncio.wrap_future(asyncio.run_coroutine_threadsafe(client.aclose(), owner))
+        finally:
+            self._client.close()
 
     def _get_base_url(self, server_url: str) -> str:
         matched = re.match(r"^(https?://[^/]+)", server_url)
@@ -380,22 +423,30 @@ class HttpVlmClient(VlmClient):
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         priority: Sequence[int | None] | int | None = None,
     ) -> list[str]:
+        """同步批量请求复用异步完成计数，并传递实例进度配置。"""
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = None
 
-        task = self.aio_batch_predict(
-            images=images,
-            prompts=prompts,
-            sampling_params=sampling_params,
-            priority=priority,
-        )
-
         if loop is not None:
-            return loop.run_until_complete(task)
-        else:
-            return asyncio.run(task)
+            raise RuntimeError("Use aio_batch_predict() inside a running event loop")
+
+        async def predict_and_close() -> list[str]:
+            """临时循环内完成请求与连接关闭，避免同步调用泄漏异步连接。"""
+            try:
+                return await self.aio_batch_predict(
+                    images=images,
+                    prompts=prompts,
+                    sampling_params=sampling_params,
+                    priority=priority,
+                    use_tqdm=self.use_tqdm,
+                    tqdm_desc="VLM Predict",
+                )
+            finally:
+                await self.aclose_current_loop()
+
+        return asyncio.run(predict_and_close())
 
     def stream_predict(
         self,

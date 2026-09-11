@@ -159,7 +159,7 @@ async def aio_image_to_bytes_list_and_format(image: ImageType):
     image_format: str | None = "png"
     for image_item in image_to_seq(image):
         if isinstance(image_item, Image.Image):
-            image_item = get_png_bytes(image_item)
+            image_item = await run_in_thread_until_complete(get_png_bytes, image_item)
         else:  # image is not PIL Image
             image_format = None
         if isinstance(image_item, str):
@@ -173,28 +173,32 @@ async def gather_tasks(
     use_tqdm=False,
     tqdm_desc: str | None = None,
 ) -> list[T]:
-    async def indexed(idx: int, task: Coroutine[Any, Any, T]):
-        output = await task
-        return (idx, output)
+    """按完成顺序更新进度并还原结果顺序；空任务不创建进度条。"""
+    if not tasks:
+        return []
 
-    task_set: set[asyncio.Task[tuple[int, T]]] = set()
-    for idx, task in enumerate(tasks):
-        task_set.add(asyncio.create_task(indexed(idx, task)))
-
+    # 直接调度原协程，避免包装任务在首次执行前取消时遗留未 await 的内层协程。
+    task_list = [asyncio.create_task(task) for task in tasks]
+    task_set = set(task_list)
     pending = set(task_set)
-    outputs: list[tuple[int, T]] = []
     try:
         with tqdm(total=len(tasks), desc=tqdm_desc, disable=not use_tqdm) as pbar:
             while len(pending) > 0:
                 done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
-                outputs.extend(done_task.result() for done_task in done)
+                for done_task in done:
+                    done_task.result()
                 pbar.update(len(done))
     except (Exception, asyncio.CancelledError):
         # 子任务失败或父协程取消时，先取消未完成任务，再等待各任务完成自身清理。
         for task in pending:
             task.cancel()
-        await asyncio.gather(*task_set, return_exceptions=True)
+        cleanup = asyncio.gather(*task_set, return_exceptions=True)
+        while not cleanup.done():
+            try:
+                await asyncio.shield(cleanup)
+            except asyncio.CancelledError:
+                continue
+        cleanup.result()
         raise
 
-    outputs.sort(key=lambda x: x[0])
-    return [output for _, output in outputs]
+    return [task.result() for task in task_list]
