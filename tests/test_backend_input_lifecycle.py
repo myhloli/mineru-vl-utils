@@ -2,6 +2,7 @@
 
 import asyncio
 import threading
+from collections.abc import AsyncIterator
 from types import SimpleNamespace
 
 import pytest
@@ -19,6 +20,7 @@ class RenderingEngine:
         self.renderer = SimpleNamespace(render_cmpl=self.render)
         self.render_count = 0
         self.features = []
+        self.progress_options = []
 
     def render(self, prompts: list[dict]) -> list[dict]:
         """将 raw 图像物化为特征，刻意不把已物化输入当作 raw 图像。"""
@@ -27,17 +29,19 @@ class RenderingEngine:
 
     def generate(self, prompts: list[dict], **kwargs: object) -> list[object]:
         """同步 generate 自行渲染，输出后续断言要核对的图像像素。"""
+        self.progress_options.append(kwargs["use_tqdm"])
         rendered = self.render(prompts)
         self.features.extend([im.getpixel((0, 0)) for p in rendered for im in p["mm_kwargs"]])
         return [SimpleNamespace(text="recognized") for _ in prompts]
 
 
+@pytest.mark.parametrize("enabled", [False, True])
 @pytest.mark.parametrize("mode", ["predict", "predict_scored", "score"])
-def test_vllm_sync_keeps_visual_features(mode: str) -> None:
+def test_vllm_sync_keeps_visual_features(mode: str, enabled: bool) -> None:
     """普通预测和两种评分都必须让引擎恰好渲染一次，并保留两张不同图像。"""
     client = object.__new__(VllmEngineVlmClient)
     client.vllm_llm = RenderingEngine()
-    client.use_tqdm = False
+    client.use_tqdm = enabled
     client.batch_size = 0
     client.tokenizer = SimpleNamespace(apply_chat_template=lambda *a, **k: "prompt")
     client.build_messages = lambda *a: []
@@ -54,6 +58,7 @@ def test_vllm_sync_keeps_visual_features(mode: str) -> None:
     else:
         outputs = client.batch_score(images, ["a", "b"])
     assert len(outputs) == 2
+    assert client.vllm_llm.progress_options == [enabled]
     assert client.vllm_llm.render_count == 1
     assert client.vllm_llm.features == [(255, 0, 0), (0, 0, 255)]
 
@@ -64,14 +69,14 @@ def test_mlx_cancellation_holds_lease_until_worker_exits(batch: bool) -> None:
     entered, release = threading.Event(), threading.Event()
     client = object.__new__(MlxVlmClient)
 
-    def predict(*args: object) -> str:
+    def predict(*args: object, **kwargs: object) -> str:
         """用事件精确控制在途推理，不依赖模型下载或 GPU。"""
         entered.set()
         assert release.wait(5)
         return "done"
 
     client.predict = predict
-    client.batch_predict = predict
+    client._batch_predict = predict
 
     async def run() -> None:
         """重复取消仍须等待线程，异常完成后释放并发名额。"""
@@ -92,5 +97,42 @@ def test_mlx_cancellation_holds_lease_until_worker_exits(batch: bool) -> None:
         with pytest.raises(asyncio.CancelledError):
             await task
         assert not semaphore.locked()
+
+    asyncio.run(run())
+
+
+def test_vllm_async_cancellation_reaches_generate_cleanup() -> None:
+    """取消异步适配器必须传递至引擎生成器，使引擎有机会执行 abort。"""
+    from mineru_vl_utils.vlm_client.vllm_async_engine_client import VllmAsyncEngineVlmClient
+
+    async def run() -> None:
+        """用真实适配器与受控引擎生成器检查取消传播。"""
+        entered = asyncio.Event()
+        cleaned = False
+
+        class Engine:
+            """提供可观测清理行为的异步生成器。"""
+
+            async def generate(self, **kwargs: object) -> AsyncIterator[object]:
+                """在取消时记录引擎自己的清理动作。"""
+                nonlocal cleaned
+                entered.set()
+                try:
+                    await asyncio.Event().wait()
+                    yield None
+                finally:
+                    cleaned = True
+
+        client = object.__new__(VllmAsyncEngineVlmClient)
+        client.vllm_async_llm = Engine()
+        client.tokenizer = SimpleNamespace(apply_chat_template=lambda *args, **kwargs: "prompt")
+        client.build_messages = lambda *args: []
+        client.build_vllm_sampling_params = lambda *args: SimpleNamespace()
+        task = asyncio.create_task(client.aio_predict(None))
+        await entered.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert cleaned
 
     asyncio.run(run())

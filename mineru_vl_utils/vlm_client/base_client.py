@@ -318,6 +318,7 @@ def new_vlm_client(
             max_retries=max_retries,
             retry_backoff_factor=retry_backoff_factor,
             skip_model_name_checking=skip_model_name_checking,
+            use_tqdm=use_tqdm,
         )
 
     elif backend == "transformers":

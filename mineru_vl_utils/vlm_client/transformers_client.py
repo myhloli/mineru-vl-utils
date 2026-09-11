@@ -137,12 +137,38 @@ class TransformersVlmClient(VlmClient):
         priority: Sequence[int | None] | int | None = None,
         **kwargs,
     ) -> list[str]:
+        """同步批量推理使用实例进度配置，不修改共享客户端状态。"""
+        return self._batch_predict(
+            images,
+            prompts,
+            sampling_params,
+            priority,
+            use_tqdm=self.use_tqdm,
+            tqdm_desc=None,
+            **kwargs,
+        )
+
+    def _batch_predict(
+        self,
+        images: Sequence[ImageType],
+        prompts: Sequence[str] | str = "",
+        sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
+        priority: Sequence[int | None] | int | None = None,
+        *,
+        use_tqdm: bool,
+        tqdm_desc: str | None,
+        **kwargs,
+    ) -> list[str]:
+        """使用调用级进度选项执行原有批处理，避免并发调用串用开关。"""
         if not isinstance(prompts, str):
             assert len(prompts) == len(images), "Length of prompts and images must match."
         if isinstance(sampling_params, Sequence):
             assert len(sampling_params) == len(images), "Length of sampling_params and images must match."
         if isinstance(priority, Sequence):
             assert len(priority) == len(images), "Length of priority and images must match."
+
+        if not images:
+            return []
 
         image_objs: list[Image.Image | None] = []
         for image in images:
@@ -188,7 +214,7 @@ class TransformersVlmClient(VlmClient):
         outputs: list[str | None] = [None] * len(inputs)
         batch_size = max(1, self.batch_size)
 
-        with tqdm(total=len(inputs), desc="Predict", disable=not self.use_tqdm) as pbar:
+        with tqdm(total=len(inputs), desc=tqdm_desc if tqdm_desc is not None else "Predict", disable=not use_tqdm) as pbar:
             # group inputs by sampling_params, because transformers
             # don't support different params in one batch.
             for params, group_inputs in groupby(inputs, key=lambda item: item[-1]):
@@ -263,12 +289,17 @@ class TransformersVlmClient(VlmClient):
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
     ) -> str:
-        return await asyncio.to_thread(
-            self.predict,
-            image,
-            prompt,
-            sampling_params,
+        """异步单请求由外层聚合进度，避免嵌套显示单条进度。"""
+        outputs = await asyncio.to_thread(
+            self._batch_predict,
+            [image],
+            [prompt],
+            [sampling_params],
+            [priority],
+            use_tqdm=False,
+            tqdm_desc=None,
         )
+        return outputs[0]
 
     async def aio_batch_predict(
         self,
@@ -280,9 +311,13 @@ class TransformersVlmClient(VlmClient):
         use_tqdm=False,
         tqdm_desc: str | None = None,
     ) -> list[str]:
+        """异步批量推理遵守调用级开关和描述，不覆盖实例配置。"""
         return await asyncio.to_thread(
-            self.batch_predict,
+            self._batch_predict,
             images,
             prompts,
             sampling_params,
+            priority,
+            use_tqdm=use_tqdm,
+            tqdm_desc=tqdm_desc,
         )

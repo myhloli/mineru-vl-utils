@@ -330,6 +330,14 @@ class MinerUClient:
         ...
 ```
 
+## Inference progress
+
+`MinerUClient(..., use_tqdm=True)` enables inference progress by default, including local LMDeploy and remote HTTP batch extraction. Set `use_tqdm=False` to disable it. Progress is written to the terminal of the process running the client; it is not an HTTP response field.
+
+Synchronous backend batch methods use the client instance setting. Supported asynchronous backend batch methods accept their own `use_tqdm` (default `False`) and `tqdm_desc` arguments; high-level `MinerUClient` batch methods pass the instance setting to the appropriate stage. MLX and Transformers honor these per-call settings without changing shared client state.
+
+LMDeploy and synchronous vLLM retain their native per-batch progress. HTTP extraction counts completed requests and preserves input order. Concurrent two-step extraction retains its page-level `Two Step Extraction` bar, with internal requests kept silent. Empty inference batches do not display progress, and skipped blocks do not count as inference requests. Loading models and preparing inputs are separate from inference completion.
+
 ## Limitations
 
 The `transformers` backend is slow and not suitable for production use.
@@ -369,3 +377,28 @@ results = client.batch_content_extract(images)
 Generation remains serialized with the same lock, including asynchronous calls; batching does not enable simultaneous GPU calls from multiple threads. Cancellation waits for in-flight work before releasing resources. Each sample gets independent penalty processors. As before, MLX does not implement `no_repeat_ngram_size` or priority scheduling. Batch decoding can produce small whitespace differences compared with sequential decoding.
 
 The pixel budget accommodates eight 1036×1036 layout inputs (8,586,368 pixels). The default batch is 8; users can explicitly select `batch_size=4`, `2`, or `1` to reduce memory use. Increasing the budget does not enable concurrent GPU calls or remove per-batch limits.
+
+### Asynchronous HTTP lifecycle
+
+Reuse a `MinerUClient` on a running event loop to reuse its HTTP connection pool. Finish, or cancel and await,
+all outstanding extraction tasks before closing the client with `await client.aclose()`. Close it before its
+owning event loop stops. The existing synchronous HTTP batch methods close their temporary-loop connections
+before returning and can be called repeatedly.
+
+```python
+from PIL import Image
+from mineru_vl_utils import MinerUClient
+from mineru_vl_utils.structs import ExtractResult
+
+async def extract_document(client: MinerUClient, images: list[Image.Image]) -> list[ExtractResult]:
+    """完成抽取并在所属事件循环结束之前释放 HTTP 连接。"""
+    try:
+        return await client.aio_batch_two_step_extract(images)
+    finally:
+        await client.aclose()
+```
+
+`MinerUClient.aclose()` closes owned HTTP connections. Engines and executors supplied by the caller remain
+caller-owned. Batch failures and cancellation drain child tasks and synchronous image preparation before
+returning, so callers can then release their input images. Canceling an HTTP request does not guarantee that
+the remote server immediately aborts generation.
