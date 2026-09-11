@@ -101,7 +101,15 @@ async def _run_in_executor_drained(
     try:
         return await asyncio.shield(future)
     except asyncio.CancelledError:
-        await asyncio.gather(future, return_exceptions=True)
+        while not future.done():
+            try:
+                await asyncio.shield(future)
+            except asyncio.CancelledError:
+                continue
+            except BaseException:
+                break
+        if not future.cancelled():
+            future.exception()
         raise
 
 
@@ -405,10 +413,7 @@ class MinerUClientHelper:
         image_analysis: bool | None = None,
     ) -> list[tuple[list[Image.Image | bytes], list[str], list[SamplingParams | None], list[int]]]:
         if executor is None:
-            return [
-                self.prepare_for_extract(im, bls, not_extract_list, image_analysis)
-                for im, bls in zip(images, blocks_list)
-            ]
+            return [self.prepare_for_extract(im, bls, not_extract_list, image_analysis) for im, bls in zip(images, blocks_list)]
         return list(
             executor.map(
                 self.prepare_for_extract,
@@ -440,8 +445,8 @@ class MinerUClientHelper:
         executor: Executor | None,
         output: str,
     ) -> list[ContentBlock]:
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(executor, self.parse_layout_output, output)
+        # 等待线程完成后再向调用方传播取消，避免后台继续修改共享结果。
+        return await _run_in_executor_drained(executor, self.parse_layout_output, output)
 
     async def aio_prepare_for_extract(
         self,
@@ -465,8 +470,8 @@ class MinerUClientHelper:
         executor: Executor | None,
         blocks: list[ContentBlock],
     ) -> list[ContentBlock]:
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(executor, self.post_process, blocks)
+        # 清理阶段也不能让被取消的线程继续写入已交还的文档树。
+        return await _run_in_executor_drained(executor, self.post_process, blocks)
 
 
 class _PredictResult:
@@ -669,6 +674,11 @@ class MinerUClient:
             self.batching_mode = "concurrent"
         else:  # backend in ("transformers", "mlx-engine", "vllm-engine")
             self.batching_mode = "stepping"
+
+    async def aclose(self) -> None:
+        """只关闭自有 HTTP 连接，不关闭调用方提供的引擎或 executor。"""
+        if self.backend == "http-client":
+            await self.client.aclose()
 
     # ------------------------------------------------------------------
     # Internal helpers: normalize predict / predict_scored into _PredictResult
@@ -1011,18 +1021,24 @@ class MinerUClient:
         except RuntimeError:
             loop = None
 
-        task = self.aio_concurrent_two_step_extract(
-            images,
-            priority,
-            not_extract_list,
-            scored=scored,
-            image_analysis=image_analysis,
-        )
-
         if loop is not None:
-            return loop.run_until_complete(task)
-        else:
-            return asyncio.run(task)
+            raise RuntimeError("Use aio_concurrent_two_step_extract() inside a running event loop")
+
+        async def extract_and_close() -> list[ExtractResult]:
+            """同步桥接结束前关闭当前循环的 HTTP 连接，保留实例复用能力。"""
+            try:
+                return await self.aio_concurrent_two_step_extract(
+                    images,
+                    priority,
+                    not_extract_list,
+                    scored=scored,
+                    image_analysis=image_analysis,
+                )
+            finally:
+                if self.backend == "http-client":
+                    await self.client.aclose_current_loop()
+
+        return asyncio.run(extract_and_close())
 
     async def aio_concurrent_two_step_extract(
         self,
@@ -1061,7 +1077,9 @@ class MinerUClient:
 
             async def aio_batch_predict_fn(prompts: list[str]) -> list[str]:
                 return await self.client.aio_batch_predict(
-                    [None] * len(prompts), prompts, [params] * len(prompts),
+                    [None] * len(prompts),
+                    prompts,
+                    [params] * len(prompts),
                 )
 
             await aio_detect_cross_page_cell_merge(results, aio_batch_predict_fn)
@@ -1101,7 +1119,9 @@ class MinerUClient:
 
             def batch_predict_fn(prompts: list[str]) -> list[str]:
                 return self.client.batch_predict(
-                    [None] * len(prompts), prompts, [params] * len(prompts),
+                    [None] * len(prompts),
+                    prompts,
+                    [params] * len(prompts),
                 )
 
             detect_cross_page_cell_merge(results, batch_predict_fn)
@@ -1163,7 +1183,9 @@ class MinerUClient:
 
             async def aio_batch_predict_fn(prompts: list[str]) -> list[str]:
                 return await self.client.aio_batch_predict(
-                    [None] * len(prompts), prompts, [params] * len(prompts),
+                    [None] * len(prompts),
+                    prompts,
+                    [params] * len(prompts),
                 )
 
             await aio_detect_cross_page_cell_merge(results, aio_batch_predict_fn)
@@ -1223,6 +1245,7 @@ class MinerUClient:
                 scored,
                 image_analysis,
             )
+
     @staticmethod
     def _coerce_external_layout_blocks(blocks: Sequence[ContentBlock | dict]) -> list[ContentBlock]:
         """将外部layout block规范化为ContentBlock，并保留调用方附加的映射字段。"""
@@ -1291,10 +1314,7 @@ class MinerUClient:
         if priority is None and getattr(self, "incremental_priority", False):
             priority = list(range(len(images)))
 
-        normalized_blocks_list = [
-            self._coerce_external_layout_blocks(blocks)
-            for blocks in blocks_list
-        ]
+        normalized_blocks_list = [self._coerce_external_layout_blocks(blocks) for blocks in blocks_list]
         prepared_inputs = self.helper.batch_prepare_for_extract(
             getattr(self, "executor", None),
             images,
@@ -1320,7 +1340,9 @@ class MinerUClient:
 
             def batch_predict_fn(prompts: list[str]) -> list[str]:
                 return self.client.batch_predict(
-                    [None] * len(prompts), prompts, [params] * len(prompts),
+                    [None] * len(prompts),
+                    prompts,
+                    [params] * len(prompts),
                 )
 
             detect_cross_page_cell_merge(results, batch_predict_fn)
@@ -1367,10 +1389,7 @@ class MinerUClient:
             priority = list(range(len(images)))
 
         semaphore = semaphore or asyncio.Semaphore(getattr(self, "max_concurrency", 100))
-        normalized_blocks_list = [
-            self._coerce_external_layout_blocks(blocks)
-            for blocks in blocks_list
-        ]
+        normalized_blocks_list = [self._coerce_external_layout_blocks(blocks) for blocks in blocks_list]
         prepared_inputs = await gather_tasks(
             tasks=[
                 self.helper.aio_prepare_for_extract(
@@ -1416,7 +1435,9 @@ class MinerUClient:
 
             async def aio_batch_predict_fn(prompts: list[str]) -> list[str]:
                 return await self.client.aio_batch_predict(
-                    [None] * len(prompts), prompts, [params] * len(prompts),
+                    [None] * len(prompts),
+                    prompts,
+                    [params] * len(prompts),
                 )
 
             await aio_detect_cross_page_cell_merge(results, aio_batch_predict_fn)

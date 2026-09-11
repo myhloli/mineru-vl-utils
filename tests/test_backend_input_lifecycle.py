@@ -2,6 +2,7 @@
 
 import asyncio
 import threading
+from collections.abc import AsyncIterator
 from types import SimpleNamespace
 
 import pytest
@@ -96,5 +97,42 @@ def test_mlx_cancellation_holds_lease_until_worker_exits(batch: bool) -> None:
         with pytest.raises(asyncio.CancelledError):
             await task
         assert not semaphore.locked()
+
+    asyncio.run(run())
+
+
+def test_vllm_async_cancellation_reaches_generate_cleanup() -> None:
+    """取消异步适配器必须传递至引擎生成器，使引擎有机会执行 abort。"""
+    from mineru_vl_utils.vlm_client.vllm_async_engine_client import VllmAsyncEngineVlmClient
+
+    async def run() -> None:
+        """用真实适配器与受控引擎生成器检查取消传播。"""
+        entered = asyncio.Event()
+        cleaned = False
+
+        class Engine:
+            """提供可观测清理行为的异步生成器。"""
+
+            async def generate(self, **kwargs: object) -> AsyncIterator[object]:
+                """在取消时记录引擎自己的清理动作。"""
+                nonlocal cleaned
+                entered.set()
+                try:
+                    await asyncio.Event().wait()
+                    yield None
+                finally:
+                    cleaned = True
+
+        client = object.__new__(VllmAsyncEngineVlmClient)
+        client.vllm_async_llm = Engine()
+        client.tokenizer = SimpleNamespace(apply_chat_template=lambda *args, **kwargs: "prompt")
+        client.build_messages = lambda *args: []
+        client.build_vllm_sampling_params = lambda *args: SimpleNamespace()
+        task = asyncio.create_task(client.aio_predict(None))
+        await entered.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert cleaned
 
     asyncio.run(run())
