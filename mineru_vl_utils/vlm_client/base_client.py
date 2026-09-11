@@ -407,6 +407,7 @@ def new_vlm_client(
             allow_truncated_content=allow_truncated_content,
             max_concurrency=max_concurrency,
             debug=debug,
+            use_tqdm=use_tqdm,
         )
 
     else:

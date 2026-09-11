@@ -1,8 +1,9 @@
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Sequence
 
 from loguru import logger
+from tqdm import tqdm
 
 if TYPE_CHECKING:
     from mineru_llama_cpp import GenerateResult as LlamaCppGenerateResult
@@ -35,6 +36,7 @@ class LlamaCppEngineVlmClient(VlmClient):
         allow_truncated_content: bool = False,
         max_concurrency: int = 100,
         debug: bool = False,
+        use_tqdm: bool = True,
     ):
         super().__init__(
             prompt=prompt,
@@ -63,6 +65,7 @@ class LlamaCppEngineVlmClient(VlmClient):
         self.LlamaCppEngineError = LlamaCppEngineError
         self.max_concurrency = max_concurrency
         self.debug = debug
+        self.use_tqdm = use_tqdm
 
     def build_messages(self, image_urls: list[str], prompt: str) -> list[dict]:
         prompt = prompt or self.prompt
@@ -160,6 +163,7 @@ class LlamaCppEngineVlmClient(VlmClient):
         sampling_params: Sequence[SamplingParams | None] | SamplingParams | None = None,
         priority: Sequence[int | None] | int | None = None,
     ) -> list[str]:
+        """并发提取内容，按完成请求更新进度，并保持输入对应的结果顺序。"""
         images_len = len(images)
         if isinstance(prompts, str):
             prompts = [prompts] * images_len
@@ -171,18 +175,24 @@ class LlamaCppEngineVlmClient(VlmClient):
         assert len(prompts) == images_len, "Length of prompts and images must match."
         assert len(sampling_params) == images_len, "Length of sampling_params and images must match."
         assert len(priority) == images_len, "Length of priority and images must match."
+        if not images_len:
+            return []
 
         # Engine.generate() releases the GIL in its C++ layer (see
         # mineru-llama-cpp's test_concurrency.py), so a plain thread pool lets
         # concurrent calls actually decode in parallel across the engine's
         # n_parallel slots, instead of serializing on the GIL.
         with ThreadPoolExecutor(max_workers=self.max_concurrency) as executor:
-            results = list(
-                executor.map(
-                    lambda args: self.predict(*args),
-                    zip(images, prompts, sampling_params, priority),
-                )
-            )
+            futures = {
+                executor.submit(self.predict, *args): index
+                for index, args in enumerate(zip(images, prompts, sampling_params, priority))
+            }
+            results = [""] * images_len
+            with tqdm(total=images_len, desc="VLM Predict", disable=not self.use_tqdm) as pbar:
+                for future in as_completed(futures):
+                    # 完成顺序只影响进度显示，内容仍回填到原始请求对应的位置。
+                    results[futures[future]] = future.result()
+                    pbar.update(1)
         return results
 
     async def aio_predict(
