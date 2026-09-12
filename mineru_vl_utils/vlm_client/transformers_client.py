@@ -15,7 +15,7 @@ from .base_client import (
     UnsupportedError,
     VlmClient,
 )
-from .utils import get_rgb_image, load_resource
+from .utils import VLM_PREDICT_DESC, get_rgb_image, load_resource
 
 
 class TransformersVlmClient(VlmClient):
@@ -214,7 +214,7 @@ class TransformersVlmClient(VlmClient):
         outputs: list[str | None] = [None] * len(inputs)
         batch_size = max(1, self.batch_size)
 
-        with tqdm(total=len(inputs), desc=tqdm_desc if tqdm_desc is not None else "Predict", disable=not use_tqdm) as pbar:
+        with tqdm(total=len(inputs), desc=tqdm_desc if tqdm_desc is not None else VLM_PREDICT_DESC, disable=not use_tqdm) as pbar:
             # group inputs by sampling_params, because transformers
             # don't support different params in one batch.
             for params, group_inputs in groupby(inputs, key=lambda item: item[-1]):

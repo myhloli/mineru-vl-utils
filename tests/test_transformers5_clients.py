@@ -7,6 +7,7 @@ import sys
 import subprocess
 import threading
 from types import ModuleType, SimpleNamespace
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
@@ -74,6 +75,13 @@ def pipeline_type(monkeypatch: pytest.MonkeyPatch) -> type:
                 with self.lock:
                     self.active -= 1
 
+        def stream_infer(self, prompts: list[Any], *, gen_config: list[Any], stream_response: bool, **kwargs: Any) -> Iterator[Any]:
+            """模拟完整响应流，倒序交付以检查结果索引回填。"""
+            responses = self.infer(prompts, gen_config=gen_config, stream_response=stream_response, **kwargs)
+            for index in reversed(range(len(responses))):
+                responses[index].index = index
+                yield responses[index]
+
     module = ModuleType("lmdeploy")
     module.GenerationConfig = GenerationConfig
     module.pipeline = Pipeline
@@ -84,10 +92,11 @@ def pipeline_type(monkeypatch: pytest.MonkeyPatch) -> type:
     return Pipeline
 
 
-def test_pipeline_preserves_batch_order_priority_and_sampling(pipeline_type: type) -> None:
+@pytest.mark.parametrize("enabled", [False, True])
+def test_pipeline_preserves_batch_order_priority_and_sampling(pipeline_type: type, enabled: bool) -> None:
     """不同优先级请求可以拆批，但必须保持结果顺序及各自生成参数。"""
     pipeline = pipeline_type()
-    client = LmdeployEngineVlmClient(pipeline, batch_size=3, use_tqdm=False)
+    client = LmdeployEngineVlmClient(pipeline, batch_size=3, use_tqdm=enabled)
     outputs = client.batch_predict(
         [None] * 4,
         ["a", "b", "c", "d"],
@@ -316,6 +325,7 @@ def test_lmdeploy_extraction_progress_ownership(
 
     monkeypatch.setattr(pipeline, "infer", infer)
     monkeypatch.setattr(utils, "tqdm", progress)
+    monkeypatch.setattr("mineru_vl_utils.vlm_client.lmdeploy_engine_client.tqdm", progress)
     images = [Image.new("RGB", (32, 32)) for _ in range(2)]
     try:
         if two_step:
@@ -331,13 +341,14 @@ def test_lmdeploy_extraction_progress_ownership(
             )
         assert [page[0].content for page in results] == ["recognized", "recognized"]
         assert pipeline.calls
-        assert all(call["use_tqdm"] is (enabled and not use_async and not two_step) for call in pipeline.calls)
-        visible = [(options, bar) for options, bar in bars if not options["disable"]]
-        if enabled and (two_step or use_async):
+        assert all(call.get("use_tqdm", False) is False for call in pipeline.calls)
+        assert any("stream_response" in call for call in pipeline.calls) is (enabled and not use_async and not two_step)
+        visible = [(options, bar) for options, bar in bars if not options.get("disable", False)]
+        if enabled:
             assert len(visible) == 1
             options, bar = visible[0]
             assert options["total"] == 2
-            assert options["desc"] == ("Two Step Extraction" if two_step else "External Layout Extraction")
+            assert options["desc"] == ("Two Step Extraction" if two_step else "VLM Predict")
             assert sum(call.args[0] for call in bar.update.call_args_list) == 2
         else:
             assert not visible
@@ -353,3 +364,108 @@ def test_lmdeploy_empty_batch_does_not_call_pipeline(pipeline_type: type) -> Non
     assert client.batch_predict([]) == []
     assert asyncio.run(client.aio_batch_predict([], use_tqdm=True)) == []
     assert not pipeline.calls
+
+
+def test_lmdeploy_stream_progress_updates_before_batch_finishes(pipeline_type: type, monkeypatch: pytest.MonkeyPatch) -> None:
+    """慢首请求之前先完成尾请求，进度必须立即更新且最终输出仍按原序排列。"""
+    from unittest.mock import MagicMock
+
+    pipeline = pipeline_type()
+    bar = MagicMock()
+    bar.__enter__.return_value = bar
+    factory = MagicMock(return_value=bar)
+    drained = []
+
+    def stream(prompts: list[Any], *, gen_config: list[Any], stream_response: bool, **kwargs: Any) -> Iterator[Any]:
+        """逐条推进生成器，在下一条响应交付前断言前一条已计入进度。"""
+        assert prompts == ["a", "b", "c"]
+        assert stream_response is False
+        assert kwargs == {"priority": 7}
+        try:
+            yield SimpleNamespace(index=2, text="c", finish_reason="stop")
+            bar.update.assert_called_once_with(1)
+            yield SimpleNamespace(index=0, text="a", finish_reason="stop")
+            yield SimpleNamespace(index=1, text="b", finish_reason="length")
+        finally:
+            drained.append(True)
+
+    monkeypatch.setattr(pipeline, "stream_infer", stream)
+    monkeypatch.setattr("mineru_vl_utils.vlm_client.lmdeploy_engine_client.tqdm", factory)
+    client = LmdeployEngineVlmClient(pipeline)
+    assert client.batch_predict([None] * 3, ["a", "b", "c"], priority=7) == ["a", "b", "c"]
+    assert drained == [True]
+    assert not pipeline.calls
+    factory.assert_called_once_with(total=3, desc="VLM Predict")
+    assert bar.update.call_count == 3
+    bar.__exit__.assert_called_once_with(None, None, None)
+
+
+@pytest.mark.parametrize(
+    ("bad_response", "message"),
+    [
+        (SimpleNamespace(index=1, text="", finish_reason="error"), "inference failed"),
+        (SimpleNamespace(index=2, text="duplicate", finish_reason="stop"), "duplicate response index"),
+        (SimpleNamespace(index=-1, text="x", finish_reason="stop"), "invalid response index"),
+        (SimpleNamespace(index=3, text="x", finish_reason="stop"), "invalid response index"),
+        (SimpleNamespace(index="1", text="x", finish_reason="stop"), "invalid response index"),
+        (SimpleNamespace(index=True, text="x", finish_reason="stop"), "invalid response index"),
+        (SimpleNamespace(index=1, text="x", finish_reason=None), "incomplete response"),
+        (SimpleNamespace(index=1, text=None, finish_reason="stop"), "incomplete response"),
+        (None, "unexpected number of responses"),
+    ],
+)
+def test_lmdeploy_stream_errors_drain_batch_before_raising(
+    pipeline_type: type,
+    monkeypatch: pytest.MonkeyPatch,
+    bad_response: Any,
+    message: str,
+) -> None:
+    """响应错误不能中断本批消费；缺失和重复响应也不得虚增完成计数。"""
+    from unittest.mock import MagicMock
+
+    pipeline = pipeline_type()
+    bar = MagicMock()
+    bar.__enter__.return_value = bar
+    drained = []
+
+    def stream(*args: Any, **kwargs: Any) -> Iterator[Any]:
+        """错误响应之后仍有合法在途结果，必须消费到末尾再退出。"""
+        yield SimpleNamespace(index=2, text="c", finish_reason="stop")
+        if bad_response is not None:
+            yield bad_response
+        yield SimpleNamespace(index=0, text="a", finish_reason="stop")
+        drained.append(True)
+
+    monkeypatch.setattr(pipeline, "stream_infer", stream)
+    monkeypatch.setattr("mineru_vl_utils.vlm_client.lmdeploy_engine_client.tqdm", MagicMock(return_value=bar))
+    with pytest.raises(ServerError, match=message):
+        LmdeployEngineVlmClient(pipeline).batch_predict([None] * 3, ["a", "b", "c"])
+    assert drained == [True]
+    assert bar.update.call_count == 2
+    assert bar.__exit__.call_args.args[0] is ServerError
+
+
+def test_lmdeploy_stream_exception_closes_progress(pipeline_type: type, monkeypatch: pytest.MonkeyPatch) -> None:
+    """迭代器自身抛出异常时保留异常并关闭进度上下文。"""
+    from unittest.mock import MagicMock
+
+    pipeline = pipeline_type()
+    bar = MagicMock()
+    bar.__enter__.return_value = bar
+    cleaned = []
+
+    def stream(*args: Any, **kwargs: Any) -> Iterator[Any]:
+        """模拟后端迭代异常及其内部清理。"""
+        try:
+            yield SimpleNamespace(index=0, text="a", finish_reason="stop")
+            raise RuntimeError("stream failed")
+        finally:
+            cleaned.append(True)
+
+    monkeypatch.setattr(pipeline, "stream_infer", stream)
+    monkeypatch.setattr("mineru_vl_utils.vlm_client.lmdeploy_engine_client.tqdm", MagicMock(return_value=bar))
+    with pytest.raises(RuntimeError, match="stream failed"):
+        LmdeployEngineVlmClient(pipeline).batch_predict([None, None])
+    assert cleaned == [True]
+    bar.update.assert_called_once_with(1)
+    assert bar.__exit__.call_args.args[0] is RuntimeError

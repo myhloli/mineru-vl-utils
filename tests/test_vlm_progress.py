@@ -57,7 +57,7 @@ def test_local_sync_and_async_progress(local_client: VlmClient, bars: list, enab
     """实例与调用级开关故意取反，确认同步和异步各自遵守正确配置。"""
     local_client.use_tqdm = not enabled
     assert len(local_client.batch_predict([None, None], ["a", "b"])) == 2
-    assert bars[-1][0] == {"total": 2, "desc": "Predict", "disable": enabled}
+    assert bars[-1][0] == {"total": 2, "desc": "VLM Predict", "disable": enabled}
     assert (
         len(
             asyncio.run(
@@ -65,13 +65,13 @@ def test_local_sync_and_async_progress(local_client: VlmClient, bars: list, enab
                     [None, None],
                     ["a", "b"],
                     use_tqdm=enabled,
-                    tqdm_desc="External Layout Extraction",
+                    tqdm_desc="Caller stage",
                 )
             )
         )
         == 2
     )
-    assert bars[-1][0] == {"total": 2, "desc": "External Layout Extraction", "disable": not enabled}
+    assert bars[-1][0] == {"total": 2, "desc": "Caller stage", "disable": not enabled}
     assert sum(call.args[0] for call in bars[-1][1].update.call_args_list) == 2
     assert local_client.use_tqdm is not enabled
     bars[-1][1].__exit__.assert_called_once()
@@ -184,14 +184,14 @@ def test_async_vllm_external_layout_progress(monkeypatch: pytest.MonkeyPatch, ba
     try:
         result = asyncio.run(client.aio_batch_extract_with_layout([image], [blocks], image_analysis=False))
         assert result[0][0].content == "text"
-        extraction_bars = [(opts, bar) for opts, bar in bars if opts["desc"] == "External Layout Extraction"]
+        extraction_bars = [(opts, bar) for opts, bar in bars if opts["desc"] == "VLM Predict"]
         assert len(extraction_bars) == 1
         opts, bar = extraction_bars[0]
-        assert opts == {"total": 1, "desc": "External Layout Extraction", "disable": not enabled}
+        assert opts == {"total": 1, "desc": "VLM Predict", "disable": not enabled}
         bar.update.assert_called_once_with(1)
         bars.clear()
         asyncio.run(client.aio_batch_extract_with_layout([image], [[]]))
-        assert not any(opts["desc"] == "External Layout Extraction" for opts, _ in bars)
+        assert not any(opts["desc"] == "VLM Predict" for opts, _ in bars)
     finally:
         image.close()
 
