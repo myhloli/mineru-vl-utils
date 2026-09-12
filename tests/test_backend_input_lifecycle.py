@@ -4,6 +4,7 @@ import asyncio
 import threading
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 from PIL import Image
@@ -29,7 +30,11 @@ class RenderingEngine:
 
     def generate(self, prompts: list[dict], **kwargs: object) -> list[object]:
         """同步 generate 自行渲染，输出后续断言要核对的图像像素。"""
-        self.progress_options.append(kwargs["use_tqdm"])
+        progress = kwargs["use_tqdm"]
+        self.progress_options.append(progress)
+        if progress:
+            with progress(total=len(prompts), desc="Processed prompts", dynamic_ncols=True, postfix="engine speed") as bar:
+                bar.update(len(prompts))
         rendered = self.render(prompts)
         self.features.extend([im.getpixel((0, 0)) for p in rendered for im in p["mm_kwargs"]])
         return [SimpleNamespace(text="recognized") for _ in prompts]
@@ -37,8 +42,10 @@ class RenderingEngine:
 
 @pytest.mark.parametrize("enabled", [False, True])
 @pytest.mark.parametrize("mode", ["predict", "predict_scored", "score"])
-def test_vllm_sync_keeps_visual_features(mode: str, enabled: bool) -> None:
+def test_vllm_sync_keeps_visual_features(mode: str, enabled: bool, monkeypatch: pytest.MonkeyPatch) -> None:
     """普通预测和两种评分都必须让引擎恰好渲染一次，并保留两张不同图像。"""
+    factory = MagicMock()
+    monkeypatch.setattr("mineru_vl_utils.vlm_client.utils.tqdm", factory)
     client = object.__new__(VllmEngineVlmClient)
     client.vllm_llm = RenderingEngine()
     client.use_tqdm = enabled
@@ -58,7 +65,12 @@ def test_vllm_sync_keeps_visual_features(mode: str, enabled: bool) -> None:
     else:
         outputs = client.batch_score(images, ["a", "b"])
     assert len(outputs) == 2
-    assert client.vllm_llm.progress_options == [enabled]
+    if enabled:
+        assert callable(client.vllm_llm.progress_options[0])
+        factory.assert_called_once_with(total=2, desc="VLM Predict", dynamic_ncols=True, postfix="engine speed")
+    else:
+        assert client.vllm_llm.progress_options == [False]
+        factory.assert_not_called()
     assert client.vllm_llm.render_count == 1
     assert client.vllm_llm.features == [(255, 0, 0), (0, 0, 255)]
 

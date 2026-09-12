@@ -21,7 +21,7 @@ from .base_client import (
     VlmClient,
     compute_confidence_metrics,
 )
-from .utils import image_to_obj_list
+from .utils import image_to_obj_list, vlm_predict_progress
 
 
 def _build_raw_vllm_prompt(chat_prompt: str, image_list: list[Image.Image]) -> dict[str, Any]:
@@ -210,7 +210,7 @@ class VllmEngineVlmClient(VlmClient):
         outputs = self.vllm_llm.generate(
             prompts=vllm_prompts,  # type: ignore
             sampling_params=vllm_sampling_params,
-            use_tqdm=self.use_tqdm,
+            use_tqdm=vlm_predict_progress if self.use_tqdm else False,
         )
 
         return [self.get_output_content(output) for output in outputs]
@@ -299,7 +299,7 @@ class VllmEngineVlmClient(VlmClient):
             outputs = self.vllm_llm.generate(
                 prompts=vllm_prompts,  # type: ignore
                 sampling_params=batch_sp_list,
-                use_tqdm=self.use_tqdm,
+                use_tqdm=vlm_predict_progress if self.use_tqdm else False,
             )
 
             results.extend(self.get_output_scored(output) for output in outputs)
@@ -458,7 +458,7 @@ class VllmEngineVlmClient(VlmClient):
             outputs = self.vllm_llm.generate(
                 prompts=vllm_prompts,  # type: ignore
                 sampling_params=batch_sp_list,
-                use_tqdm=self.use_tqdm,
+                use_tqdm=vlm_predict_progress if self.use_tqdm else False,
             )
 
             for output, scored_text, scored_token_count in zip(outputs, batch_scored_texts, batch_scored_token_counts):

@@ -19,7 +19,7 @@ from .base_client import (
     UnsupportedError,
     VlmClient,
 )
-from .utils import get_rgb_image, load_resource, run_in_thread_until_complete
+from .utils import VLM_PREDICT_DESC, get_rgb_image, load_resource, run_in_thread_until_complete
 
 # 覆盖八张 1036×1036 layout 输入（8,586,368 像素）；这是分批预算而非硬内存上限。
 # 单张超预算仍允许单独推理，不改变调用方分辨率。
@@ -310,7 +310,7 @@ class MlxVlmClient(VlmClient):
             # 回退档保持原有调用顺序，避免分组改变随机采样的消费顺序。
             groups = {(idx,): [idx] for idx in range(count)}
         outputs = [""] * count
-        with tqdm(total=count, desc=tqdm_desc if tqdm_desc is not None else "Predict", disable=not use_tqdm) as pbar:
+        with tqdm(total=count, desc=tqdm_desc if tqdm_desc is not None else VLM_PREDICT_DESC, disable=not use_tqdm) as pbar:
             for indices in groups.values():
                 for batch in self._iter_batches(indices, image_objs):
                     texts = self._predict_batch(

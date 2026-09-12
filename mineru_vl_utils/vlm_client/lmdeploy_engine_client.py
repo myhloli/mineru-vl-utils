@@ -4,6 +4,7 @@ from itertools import groupby
 from typing import Any, Sequence
 
 from PIL import Image
+from tqdm import tqdm
 
 from .base_client import (
     DEFAULT_SYSTEM_PROMPT,
@@ -15,7 +16,7 @@ from .base_client import (
     UnsupportedError,
     VlmClient,
 )
-from .utils import gather_tasks, get_rgb_image, load_resource, run_in_thread_until_complete
+from .utils import VLM_PREDICT_DESC, gather_tasks, get_rgb_image, load_resource, run_in_thread_until_complete
 
 
 class LmdeployEngineVlmClient(VlmClient):
@@ -186,10 +187,12 @@ class LmdeployEngineVlmClient(VlmClient):
         """通过公开 Pipeline 接口推理，并将后端错误传播给同步与异步调用方。"""
         lmdeploy_prompts = [(prompt, image) if image is not None else prompt for prompt, image in zip(chat_prompts, image_objs)]
         generate_kwargs = {} if priority is None else {"priority": priority}
+        if use_tqdm:
+            return self._predict_with_progress(lmdeploy_prompts, gen_configs, priority)
         outputs = self.lmdeploy_engine.infer(
             lmdeploy_prompts,  # type: ignore
             gen_config=gen_configs,
-            use_tqdm=use_tqdm,
+            use_tqdm=False,
             **generate_kwargs,
         )
         if len(outputs) != len(lmdeploy_prompts):
@@ -197,6 +200,50 @@ class LmdeployEngineVlmClient(VlmClient):
         if any(getattr(output, "finish_reason", None) == "error" for output in outputs):
             raise ServerError("LMDeploy inference failed.")
         return [output.text for output in outputs]
+
+    def _predict_with_progress(
+        self,
+        prompts: list[str | tuple[str, Image.Image]],
+        gen_configs: list[Any],
+        priority: int | None,
+    ) -> list[str]:
+        """消费公开完整响应流，按完成请求更新进度，并在本批结束后传播响应错误。"""
+        outputs: list[str | None] = [None] * len(prompts)
+        seen: set[int] = set()
+        error: ServerError | None = None
+        generate_kwargs = {} if priority is None else {"priority": priority}
+        with tqdm(total=len(prompts), desc=VLM_PREDICT_DESC) as pbar:
+            responses = self.lmdeploy_engine.stream_infer(
+                prompts,
+                gen_config=gen_configs,
+                stream_response=False,
+                **generate_kwargs,
+            )
+            for response in responses:
+                index = getattr(response, "index", None)
+                if type(index) is not int or not 0 <= index < len(prompts):
+                    error = error or ServerError("LMDeploy returned an invalid response index.")
+                    continue
+                if index in seen:
+                    error = error or ServerError("LMDeploy returned a duplicate response index.")
+                    continue
+                seen.add(index)
+                finish_reason = getattr(response, "finish_reason", None)
+                if finish_reason == "error":
+                    error = error or ServerError("LMDeploy inference failed.")
+                    continue
+                text = getattr(response, "text", None)
+                if finish_reason is None or not isinstance(text, str):
+                    error = error or ServerError("LMDeploy returned an incomplete response.")
+                    continue
+                outputs[index] = text
+                pbar.update(1)
+            # 不提前中断响应迭代，确保错误响应之后的在途请求仍完成本批清理。
+            if error is not None:
+                raise error
+            if any(output is None for output in outputs):
+                raise ServerError("LMDeploy returned an unexpected number of responses.")
+        return [output for output in outputs if output is not None]
 
     async def aio_predict(
         self,

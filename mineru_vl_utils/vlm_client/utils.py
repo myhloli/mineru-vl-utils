@@ -15,6 +15,13 @@ from .base_client import ImageType, RequestError, SingleImageType
 
 T = TypeVar("T")
 P = ParamSpec("P")
+VLM_PREDICT_DESC = "VLM Predict"
+
+
+def vlm_predict_progress(*args: Any, **kwargs: Any) -> tqdm:
+    """适配引擎的进度工厂，覆盖默认文案并保留计数、速度及显示选项。"""
+    kwargs["desc"] = VLM_PREDICT_DESC
+    return tqdm(*args, **kwargs)
 
 
 async def run_in_thread_until_complete(function: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> T:
