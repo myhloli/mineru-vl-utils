@@ -21,7 +21,7 @@ from .post_process.table_image_processor import (
 from .structs import BLOCK_TYPES, ContentBlock, ExtractResult, ExtractStr
 from .vlm_client import DEFAULT_SYSTEM_PROMPT, SamplingParams, new_vlm_client
 from .vlm_client.base_client import ImageType, ScoredOutput
-from .vlm_client.utils import gather_tasks, get_png_bytes, get_rgb_image
+from .vlm_client.utils import VLM_PREDICT_DESC, gather_tasks, get_png_bytes, get_rgb_image
 
 _layout_re = (
     r"<\|box_start\|>(\d+)\s+(\d+)\s+(\d+)\s+(\d+)"
@@ -1415,7 +1415,7 @@ class MinerUClient:
                 semaphore,
                 scored,
                 use_tqdm=getattr(self, "use_tqdm", False),
-                tqdm_desc="External Layout Extraction",
+                tqdm_desc=VLM_PREDICT_DESC,
             )
             for (img_idx, idx), output in zip(all_indices, outputs):
                 normalized_blocks_list[img_idx][idx].content = output.text

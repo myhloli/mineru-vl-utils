@@ -20,6 +20,7 @@ from .base_client import (
     VlmClient,
 )
 from .utils import (
+    VLM_PREDICT_DESC,
     aio_image_to_bytes_list_and_format,
     gather_tasks,
     get_image_data_url,
@@ -441,7 +442,7 @@ class HttpVlmClient(VlmClient):
                     sampling_params=sampling_params,
                     priority=priority,
                     use_tqdm=self.use_tqdm,
-                    tqdm_desc="VLM Predict",
+                    tqdm_desc=VLM_PREDICT_DESC,
                 )
             finally:
                 await self.aclose_current_loop()

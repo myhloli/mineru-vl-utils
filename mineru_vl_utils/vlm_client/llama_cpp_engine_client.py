@@ -18,6 +18,7 @@ from .base_client import (
     VlmClient,
 )
 from .utils import (
+    VLM_PREDICT_DESC,
     aio_image_to_bytes_list_and_format,
     gather_tasks,
     get_image_data_url,
@@ -188,7 +189,7 @@ class LlamaCppEngineVlmClient(VlmClient):
                 for index, args in enumerate(zip(images, prompts, sampling_params, priority))
             }
             results = [""] * images_len
-            with tqdm(total=images_len, desc="VLM Predict", disable=not self.use_tqdm) as pbar:
+            with tqdm(total=images_len, desc=VLM_PREDICT_DESC, disable=not self.use_tqdm) as pbar:
                 for future in as_completed(futures):
                     # 完成顺序只影响进度显示，内容仍回填到原始请求对应的位置。
                     results[futures[future]] = future.result()
