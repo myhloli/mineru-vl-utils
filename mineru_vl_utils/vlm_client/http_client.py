@@ -84,11 +84,7 @@ class HttpVlmClient(VlmClient):
 
         if not server_url:
             server_url = _get_env("MINERU_VL_SERVER")
-        if server_url.endswith("/"):  # keep server_url if it ends with '/'
-            server_url = server_url.rstrip("/")
-        else:  # use base_url if it does not end with '/' (backward compatibility)
-            server_url = self._get_base_url(server_url)
-        self.server_url = server_url
+        self.server_url, self.api_version = self._parse_server_url(server_url)
 
         api_key = os.getenv("MINERU_VL_API_KEY", "").strip()
         if api_key:
@@ -127,7 +123,12 @@ class HttpVlmClient(VlmClient):
 
     @property
     def chat_url(self) -> str:
-        return f"{self.server_url}/v1/chat/completions"
+        return f"{self.server_url}/{self.api_version}/chat/completions"
+
+    @property
+    def models_url(self) -> str:
+        """模型发现与聊天请求共用代理前缀和 API 版本。"""
+        return f"{self.server_url}/{self.api_version}/models"
 
     def _new_client(self) -> httpx.Client:
         return httpx.Client(
@@ -233,9 +234,20 @@ class HttpVlmClient(VlmClient):
             raise RequestError(f"Invalid server URL: {server_url}")
         return matched.group(1)
 
+    def _parse_server_url(self, server_url: str) -> tuple[str, str]:
+        """识别结尾版本段，同时保留原有结尾斜杠表示代理前缀的约定。"""
+        keep_path = server_url.endswith("/")
+        normalized = server_url.rstrip("/")
+        matched = re.fullmatch(r"(https?://[^/]+(?:/.+?)?)/(v\d+)", normalized)
+        if matched:
+            return matched.group(1), matched.group(2)
+        # 即使保留路径，也验证原有的 HTTP(S) 地址要求。
+        base_url = self._get_base_url(normalized)
+        return (normalized if keep_path else base_url), "v1"
+
     def _check_model_name(self, base_url: str, model_name: str):
         try:
-            response = self._client.get(f"{base_url}/v1/models")
+            response = self._client.get(self.models_url)
         except httpx.ConnectError:
             raise ServerError(f"Failed to connect to server {base_url}. Please check if the server is running.")
         if response.status_code != 200:
@@ -246,13 +258,13 @@ class HttpVlmClient(VlmClient):
             if model.get("id") == model_name:
                 return
         raise RequestError(
-            f"Model '{model_name}' not found in the response from {base_url}/v1/models. "
+            f"Model '{model_name}' not found in the response from {self.models_url}. "
             "Please check if the model is available on the server."
         )
 
     def _get_model_name(self, base_url: str) -> str:
         try:
-            response = self._client.get(f"{base_url}/v1/models")
+            response = self._client.get(self.models_url)
         except httpx.ConnectError:
             raise ServerError(f"Failed to connect to server {base_url}. Please check if the server is running.")
         if response.status_code != 200:
