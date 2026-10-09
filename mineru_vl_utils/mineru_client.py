@@ -889,7 +889,8 @@ class MinerUClient:
         blocks_list = [[ContentBlock(type, [0.0, 0.0, 1.0, 1.0])] for type in types]
         prepared_inputs = self.helper.batch_prepare_for_extract(self.executor, images, blocks_list)
         all_images, all_prompts, all_params, all_indices = self._flatten_prepared_inputs(prepared_inputs)
-        outputs = self._batch_predict(all_images, all_prompts, all_params, priority, scored)
+        expanded_priority = self._expand_block_priorities(priority, all_indices)
+        outputs = self._batch_predict(all_images, all_prompts, all_params, expanded_priority, scored)
         for (img_idx, idx), output in zip(all_indices, outputs):
             blocks_list[img_idx][idx].content = output.text
             blocks_list[img_idx][idx].scored = output.scored
@@ -939,11 +940,12 @@ class MinerUClient:
             tqdm_desc="Extract Preparation",
         )
         all_images, all_prompts, all_params, all_indices = self._flatten_prepared_inputs(prepared_inputs)
+        expanded_priority = self._expand_block_priorities(priority, all_indices)
         outputs = await self._aio_batch_predict(
             all_images,
             all_prompts,
             all_params,
-            priority,
+            expanded_priority,
             semaphore,
             scored,
             use_tqdm=self.use_tqdm,
@@ -1105,7 +1107,8 @@ class MinerUClient:
             image_analysis,
         )
         all_images, all_prompts, all_params, all_indices = self._flatten_prepared_inputs(prepared_inputs)
-        outputs = self._batch_predict(all_images, all_prompts, all_params, priority, scored)
+        expanded_priority = self._expand_block_priorities(priority, all_indices)
+        outputs = self._batch_predict(all_images, all_prompts, all_params, expanded_priority, scored)
         for (img_idx, idx), output in zip(all_indices, outputs):
             layout_results[img_idx][idx].content = output.text
             layout_results[img_idx][idx].scored = output.scored
@@ -1156,11 +1159,12 @@ class MinerUClient:
             tqdm_desc="Extract Preparation",
         )
         all_images, all_prompts, all_params, all_indices = self._flatten_prepared_inputs(prepared_inputs)
+        expanded_priority = self._expand_block_priorities(priority, all_indices)
         outputs = await self._aio_batch_predict(
             all_images,
             all_prompts,
             all_params,
-            priority,
+            expanded_priority,
             semaphore,
             scored,
             use_tqdm=self.use_tqdm,
