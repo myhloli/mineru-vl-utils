@@ -415,3 +415,59 @@ def test_lmdeploy_isolated_batch_cancellation_keeps_thread_lease():
         assert not semaphore.locked()
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("use_async", [False, True])
+def test_mineru_layout_extraction_keeps_successful_blocks(monkeypatch, enabled, use_async):
+    """真实高层裁剪和后处理链路必须保留正常块，默认仍传播坏块错误。"""
+    import base64
+    import io
+    import json
+    from mineru_vl_utils.structs import ContentBlock
+
+    def respond(request):
+        """解码实际裁剪图像，仅拒绝黑色区域的块请求。"""
+        parts = json.loads(request.content)["messages"][-1]["content"]
+        url = next(part["image_url"]["url"] for part in parts if part["type"] == "image_url")
+        with Image.open(io.BytesIO(base64.b64decode(url.split(",", 1)[1]))) as crop:
+            if crop.getpixel((0, 0)) == (0, 0, 0):
+                return httpx.Response(422, text="bad image block")
+        return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {"content": "recognized"}}]})
+
+    async def new_aio_client(self):
+        """为真实高层请求注入无需服务器的传输。"""
+        return httpx.AsyncClient(transport=httpx.MockTransport(respond))
+
+    monkeypatch.setattr(HttpVlmClient, "_new_aio_client", new_aio_client)
+    client = MinerUClient(
+        backend="http-client",
+        server_url="http://test",
+        model_name="test",
+        skip_model_name_checking=True,
+        isolate_block_errors=enabled,
+        use_tqdm=False,
+    )
+    image = Image.new("RGB", (10, 10), "white")
+    image.paste((0, 0, 0), (5, 0, 10, 10))
+    blocks = [[ContentBlock("text", [0, 0, 0.5, 1]), ContentBlock("text", [0.5, 0, 1, 1])]]
+
+    async def run():
+        """在拥有连接池的事件循环中完成提取和显式关闭。"""
+        try:
+            return await client.aio_batch_extract_with_layout([image], blocks)
+        finally:
+            await client.aclose()
+
+    try:
+        if not enabled:
+            with pytest.raises(HttpResponseError):
+                if use_async:
+                    asyncio.run(run())
+                else:
+                    client.batch_extract_with_layout([image], blocks)
+        else:
+            result = asyncio.run(run()) if use_async else client.batch_extract_with_layout([image], blocks)
+            assert [block.content for block in result[0]] == ["recognized", ""]
+    finally:
+        asyncio.run(client.aclose())
