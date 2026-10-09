@@ -7,6 +7,7 @@ from loguru import logger
 if TYPE_CHECKING:
     from vllm.outputs import RequestOutput
 
+from .batch_errors import BlockPredictionResult, capture_block_error, collect_block_results
 from .base_client import (
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_USER_PROMPT,
@@ -34,6 +35,8 @@ class VllmAsyncEngineVlmClient(VlmClient):
         allow_truncated_content: bool = False,
         max_concurrency: int = 100,
         debug: bool = False,
+        *,
+        isolate_block_errors: bool = False,
     ):
         super().__init__(
             prompt=prompt,
@@ -41,6 +44,7 @@ class VllmAsyncEngineVlmClient(VlmClient):
             sampling_params=sampling_params,
             text_before_image=text_before_image,
             allow_truncated_content=allow_truncated_content,
+            isolate_block_errors=isolate_block_errors,
         )
 
         try:
@@ -248,32 +252,41 @@ class VllmAsyncEngineVlmClient(VlmClient):
             semaphore = asyncio.Semaphore(self.max_concurrency)
 
         async def predict_with_semaphore(
+            index: int,
             image: ImageType,
             prompt: str,
             sampling_params: SamplingParams | None,
             priority: int | None,
-        ):
+        ) -> BlockPredictionResult:
+            """逐请求记录结果；致命错误仍交由原任务收集器取消并清理同批请求。"""
             async with semaphore:
-                return await self.aio_predict(
-                    image=image,
-                    prompt=prompt,
-                    sampling_params=sampling_params,
-                    priority=priority,
-                )
+                try:
+                    return BlockPredictionResult(
+                        await self.aio_predict(
+                            image=image, prompt=prompt, sampling_params=sampling_params, priority=priority,
+                        )
+                    )
+                except Exception as exc:
+                    return capture_block_error(
+                        exc, enabled=getattr(self, "isolate_block_errors", False),
+                        backend=type(self).__name__, index=index,
+                    )
 
-        return await gather_tasks(
+        results = await gather_tasks(
             tasks=[
-                predict_with_semaphore(*args)
-                for args in zip(
+                predict_with_semaphore(index, *args)
+                for index, args in enumerate(zip(
                     images,
                     prompts,
                     sampling_params,
                     priority,
-                )
+                ))
             ],
             use_tqdm=use_tqdm,
             tqdm_desc=tqdm_desc,
         )
+
+        return collect_block_results(results)
 
     # --- scored predict (generation PPL) ---
 

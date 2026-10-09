@@ -1,6 +1,8 @@
 from .base_client import (
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_USER_PROMPT,
+    ClientClosedError,
+    HttpResponseError,
     RequestError,
     SamplingParams,
     ScoredOutput,
@@ -17,6 +19,8 @@ __all__ = [
     "UnsupportedError",
     "RequestError",
     "ServerError",
+    "HttpResponseError",
+    "ClientClosedError",
     "SamplingParams",
     "ScoredOutput",
     "VlmClient",
