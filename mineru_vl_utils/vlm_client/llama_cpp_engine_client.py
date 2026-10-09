@@ -8,6 +8,7 @@ from tqdm import tqdm
 if TYPE_CHECKING:
     from mineru_llama_cpp import GenerateResult as LlamaCppGenerateResult
 
+from .batch_errors import BlockPredictionResult, capture_block_error, collect_block_results
 from .base_client import (
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_USER_PROMPT,
@@ -38,6 +39,8 @@ class LlamaCppEngineVlmClient(VlmClient):
         max_concurrency: int = 100,
         debug: bool = False,
         use_tqdm: bool = True,
+        *,
+        isolate_block_errors: bool = False,
     ):
         super().__init__(
             prompt=prompt,
@@ -45,6 +48,7 @@ class LlamaCppEngineVlmClient(VlmClient):
             sampling_params=sampling_params,
             text_before_image=text_before_image,
             allow_truncated_content=allow_truncated_content,
+            isolate_block_errors=isolate_block_errors,
         )
 
         try:
@@ -188,13 +192,19 @@ class LlamaCppEngineVlmClient(VlmClient):
                 executor.submit(self.predict, *args): index
                 for index, args in enumerate(zip(images, prompts, sampling_params, priority))
             }
-            results = [""] * images_len
+            results = [BlockPredictionResult() for _ in range(images_len)]
             with tqdm(total=images_len, desc=VLM_PREDICT_DESC, disable=not self.use_tqdm) as pbar:
                 for future in as_completed(futures):
                     # 完成顺序只影响进度显示，内容仍回填到原始请求对应的位置。
-                    results[futures[future]] = future.result()
+                    index = futures[future]
+                    try:
+                        results[index] = BlockPredictionResult(future.result())
+                    except Exception as exc:
+                        results[index] = capture_block_error(
+                            exc, enabled=self.isolate_block_errors, backend=type(self).__name__, index=index,
+                        )
                     pbar.update(1)
-        return results
+        return collect_block_results(results)
 
     async def aio_predict(
         self,
@@ -248,24 +258,33 @@ class LlamaCppEngineVlmClient(VlmClient):
             semaphore = asyncio.Semaphore(self.max_concurrency)
 
         async def predict_with_semaphore(
+            index: int,
             image: ImageType,
             prompt: str,
             sampling_params: SamplingParams | None,
             priority: int | None,
-        ):
+        ) -> BlockPredictionResult:
+            """逐请求记录结果；致命错误仍交由原任务收集器取消并清理同批请求。"""
             async with semaphore:
-                return await self.aio_predict(
-                    image=image,
-                    prompt=prompt,
-                    sampling_params=sampling_params,
-                    priority=priority,
-                )
+                try:
+                    return BlockPredictionResult(
+                        await self.aio_predict(
+                            image=image, prompt=prompt, sampling_params=sampling_params, priority=priority,
+                        )
+                    )
+                except Exception as exc:
+                    return capture_block_error(
+                        exc, enabled=getattr(self, "isolate_block_errors", False),
+                        backend=type(self).__name__, index=index,
+                    )
 
-        return await gather_tasks(
+        results = await gather_tasks(
             tasks=[
-                predict_with_semaphore(*args)
-                for args in zip(images, prompts, sampling_params, priority)
+                predict_with_semaphore(index, *args)
+                for index, args in enumerate(zip(images, prompts, sampling_params, priority))
             ],
             use_tqdm=use_tqdm,
             tqdm_desc=tqdm_desc,
         )
+
+        return collect_block_results(results)

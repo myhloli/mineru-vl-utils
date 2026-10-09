@@ -17,6 +17,29 @@ We provides 7 different backends(deployment modes):
 6. **vllm-async-engine**: A backend for using the VLLM asynchronous engine. (requires async programming)
 7. **llama-cpp-engine**: A backend for using in-process llama.cpp VLM inference via `mineru-llama-cpp` — no HTTP server, no subprocess. Install with `pip install mineru-vl-utils[llama-cpp]`.
 
+## Optional block error isolation
+
+Ordinary batch prediction raises errors by default. To retain successful blocks when an individual inference request fails,
+pass `isolate_block_errors=True` to `MinerUClient` or the supported backend client. Failed blocks return an empty string and
+their backend, input index and exception are logged; successful results retain their input order. A batch in which every
+request failed raises the first input's original exception. A successfully generated empty string still counts as success.
+
+The option supports HTTP, llama.cpp and LMDeploy synchronous/asynchronous batches, and vLLM asynchronous batches.
+Other backends reject an enabled option before loading models. Single predictions, scored predictions and streaming
+iterator methods keep their strict error behavior. Authentication, invalid endpoint, quota and HTTP server errors,
+closed clients, cancellation, memory errors and programming errors are not converted to empty results.
+
+With LMDeploy, enabling isolation switches synchronous batches to independently scheduled requests through the existing
+asynchronous path, which can change batching throughput. Keep the default for the existing bulk inference behavior.
+
+```python
+client = MinerUClient(
+    backend="http-client",
+    server_url="http://127.0.0.1:8000/v1",
+    isolate_block_errors=True,
+)
+```
+
 ## About Output Format
 
 MinerU Vision-Language Model can handle document layout detection and

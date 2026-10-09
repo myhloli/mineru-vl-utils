@@ -20,7 +20,7 @@ from .post_process.table_image_processor import (
 )
 from .structs import BLOCK_TYPES, ContentBlock, ExtractResult, ExtractStr
 from .vlm_client import DEFAULT_SYSTEM_PROMPT, SamplingParams, new_vlm_client
-from .vlm_client.base_client import ImageType, ScoredOutput
+from .vlm_client.base_client import ImageType, ScoredOutput, validate_batch_error_isolation
 from .vlm_client.utils import VLM_PREDICT_DESC, gather_tasks, get_png_bytes, get_rgb_image
 
 _layout_re = (
@@ -534,7 +534,10 @@ class MinerUClient:
         scored: bool = False,
         enable_table_formula_eq_wrap: bool = False,
         enable_cross_page_table_merge: bool = False,
+        *,
+        isolate_block_errors: bool = False,
     ) -> None:
+        validate_batch_error_isolation(backend, isolate_block_errors)
         env_debug_value = os.getenv("MINERU_VL_DEBUG_ENABLE", "")
         if env_debug_value:
             if env_debug_value.lower() in ["true", "1", "yes"]:
@@ -618,6 +621,7 @@ class MinerUClient:
                 raise ValueError("llama_cpp_engine must be provided for the llama-cpp-engine backend.")
 
         self.client = new_vlm_client(
+            isolate_block_errors=isolate_block_errors,
             backend=backend,
             model_name=model_name,
             server_url=server_url,

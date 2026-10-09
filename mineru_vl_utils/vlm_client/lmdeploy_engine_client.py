@@ -6,6 +6,7 @@ from typing import Any, Sequence
 from PIL import Image
 from tqdm import tqdm
 
+from .batch_errors import BlockPredictionResult, capture_block_error, collect_block_results
 from .base_client import (
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_USER_PROMPT,
@@ -32,6 +33,8 @@ class LmdeployEngineVlmClient(VlmClient):
         max_concurrency: int = 100,  # max concurrency for async predict
         use_tqdm: bool = True,
         debug: bool = False,
+        *,
+        isolate_block_errors: bool = False,
     ):
         super().__init__(
             prompt=prompt,
@@ -39,6 +42,7 @@ class LmdeployEngineVlmClient(VlmClient):
             sampling_params=sampling_params,
             text_before_image=text_before_image,
             allow_truncated_content=allow_truncated_content,
+            isolate_block_errors=isolate_block_errors,
         )
 
         try:
@@ -87,11 +91,13 @@ class LmdeployEngineVlmClient(VlmClient):
         sampling_params: SamplingParams | None = None,
         priority: int | None = None,
     ) -> str:
-        return self.batch_predict(
+        # 单次调用始终使用严格路径，不受普通批量容错开关影响。
+        return self._batch_predict(
             [image],  # type: ignore
             [prompt],
             [sampling_params],
             [priority],
+            use_tqdm=self.use_tqdm,
         )[0]
 
     def batch_predict(
@@ -102,6 +108,18 @@ class LmdeployEngineVlmClient(VlmClient):
         priority: Sequence[int | None] | int | None = None,
     ) -> list[str]:
         """同步批量推理使用实例进度配置，不修改共享客户端状态。"""
+        if getattr(self, "isolate_block_errors", False):
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                pass
+            else:
+                raise RuntimeError("Use aio_batch_predict() inside a running event loop")
+            # 仅显式容错时逐请求调度，以获得每个块独立的结果与异常。
+            return asyncio.run(self.aio_batch_predict(
+                images, prompts, sampling_params, priority,
+                use_tqdm=self.use_tqdm, tqdm_desc=VLM_PREDICT_DESC,
+            ))
         return self._batch_predict(
             images,
             prompts,
@@ -299,29 +317,38 @@ class LmdeployEngineVlmClient(VlmClient):
             semaphore = asyncio.Semaphore(self.max_concurrency)
 
         async def predict_with_semaphore(
+            index: int,
             image: ImageType,
             prompt: str,
             sampling_params: SamplingParams | None,
             priority: int | None,
-        ):
+        ) -> BlockPredictionResult:
+            """逐请求记录结果；致命错误仍交由原任务收集器取消并清理同批请求。"""
             async with semaphore:
-                return await self.aio_predict(
-                    image=image,
-                    prompt=prompt,
-                    sampling_params=sampling_params,
-                    priority=priority,
-                )
+                try:
+                    return BlockPredictionResult(
+                        await self.aio_predict(
+                            image=image, prompt=prompt, sampling_params=sampling_params, priority=priority,
+                        )
+                    )
+                except Exception as exc:
+                    return capture_block_error(
+                        exc, enabled=getattr(self, "isolate_block_errors", False),
+                        backend=type(self).__name__, index=index,
+                    )
 
-        return await gather_tasks(
+        results = await gather_tasks(
             tasks=[
-                predict_with_semaphore(*args)
-                for args in zip(
+                predict_with_semaphore(index, *args)
+                for index, args in enumerate(zip(
                     images,
                     prompts,
                     sampling_params,
                     priority,
-                )
+                ))
             ],
             use_tqdm=use_tqdm,
             tqdm_desc=tqdm_desc,
         )
+
+        return collect_block_results(results)
