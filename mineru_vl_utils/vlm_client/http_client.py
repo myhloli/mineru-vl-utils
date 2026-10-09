@@ -10,9 +10,12 @@ import httpx
 from httpx_retries import Retry, RetryTransport
 from loguru import logger
 
+from .batch_errors import BlockPredictionResult, capture_block_error, collect_block_results
 from .base_client import (
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_USER_PROMPT,
+    ClientClosedError,
+    HttpResponseError,
     ImageType,
     RequestError,
     SamplingParams,
@@ -70,6 +73,7 @@ class HttpVlmClient(VlmClient):
         skip_model_name_checking: bool = False,
         *,
         use_tqdm: bool = True,
+        isolate_block_errors: bool = False,
     ) -> None:
         super().__init__(
             prompt=prompt,
@@ -77,6 +81,7 @@ class HttpVlmClient(VlmClient):
             sampling_params=sampling_params,
             text_before_image=text_before_image,
             allow_truncated_content=allow_truncated_content,
+            isolate_block_errors=isolate_block_errors,
         )
         self.use_tqdm = use_tqdm
         self.max_concurrency = max_concurrency
@@ -185,7 +190,7 @@ class HttpVlmClient(VlmClient):
         loop = asyncio.get_running_loop()
         with self._client_lock:
             if self._closed:
-                raise RuntimeError("HTTP VLM client is closed")
+                raise ClientClosedError("HTTP VLM client is closed")
             client = self._aio_client_cache.get(loop)
             if client is not None:
                 return client
@@ -196,7 +201,7 @@ class HttpVlmClient(VlmClient):
                 existing = self._aio_client_cache.setdefault(loop, client)
         if closed:
             await client.aclose()
-            raise RuntimeError("HTTP VLM client is closed")
+            raise ClientClosedError("HTTP VLM client is closed")
         if existing is not client:
             await client.aclose()
         return existing
@@ -356,7 +361,7 @@ class HttpVlmClient(VlmClient):
 
     def get_response_data(self, response: httpx.Response) -> dict:
         if response.status_code != 200:
-            raise ServerError(f"Unexpected status code: [{response.status_code}], response body: {response.text}")
+            raise HttpResponseError(response.status_code, response.text)
         try:
             response_data = response.json()
         except Exception as e:
@@ -580,32 +585,41 @@ class HttpVlmClient(VlmClient):
             semaphore = asyncio.Semaphore(self.max_concurrency)
 
         async def predict_with_semaphore(
+            index: int,
             image: ImageType,
             prompt: str,
             sampling_params: SamplingParams | None,
             priority: int | None,
-        ):
+        ) -> BlockPredictionResult:
+            """逐请求记录结果；致命错误仍交由原任务收集器取消并清理同批请求。"""
             async with semaphore:
-                return await self.aio_predict(
-                    image=image,
-                    prompt=prompt,
-                    sampling_params=sampling_params,
-                    priority=priority,
-                )
+                try:
+                    return BlockPredictionResult(
+                        await self.aio_predict(
+                            image=image, prompt=prompt, sampling_params=sampling_params, priority=priority,
+                        )
+                    )
+                except Exception as exc:
+                    return capture_block_error(
+                        exc, enabled=getattr(self, "isolate_block_errors", False),
+                        backend=type(self).__name__, index=index,
+                    )
 
-        return await gather_tasks(
+        results = await gather_tasks(
             tasks=[
-                predict_with_semaphore(*args)
-                for args in zip(
+                predict_with_semaphore(index, *args)
+                for index, args in enumerate(zip(
                     images,
                     prompts,
                     sampling_params,
                     priority,
-                )
+                ))
             ],
             use_tqdm=use_tqdm,
             tqdm_desc=tqdm_desc,
         )
+
+        return collect_block_results(results)
 
     async def aio_batch_predict_as_iter(
         self,

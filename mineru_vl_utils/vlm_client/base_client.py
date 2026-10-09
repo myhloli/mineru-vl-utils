@@ -24,6 +24,25 @@ class ServerError(RuntimeError):
     pass
 
 
+class HttpResponseError(ServerError):
+    """保留 HTTP 状态码，供批量容错区分局部错误和全局服务故障。"""
+
+    def __init__(self, status_code: int, response_text: str):
+        """保持原 ServerError 消息格式，并增加可检查的状态码。"""
+        self.status_code = status_code
+        super().__init__(f"Unexpected status code: [{status_code}], response body: {response_text}")
+
+
+class ClientClosedError(RuntimeError):
+    """已关闭的客户端不可作为单块失败进行降级。"""
+
+
+def validate_batch_error_isolation(backend: str, enabled: bool) -> None:
+    """在加载模型前拒绝不支持普通批量错误隔离的后端。"""
+    if enabled and backend not in {"http-client", "llama-cpp-engine", "lmdeploy-engine", "vllm-async-engine"}:
+        raise UnsupportedError(f"isolate_block_errors is not supported by {backend}.")
+
+
 @dataclass
 class SamplingParams:
     temperature: float | None = None
@@ -74,12 +93,14 @@ class VlmClient:
         sampling_params: SamplingParams | None = None,
         text_before_image: bool = False,
         allow_truncated_content: bool = False,
+        isolate_block_errors: bool = False,
     ) -> None:
         self.prompt = prompt
         self.system_prompt = system_prompt
         self.sampling_params = sampling_params
         self.text_before_image = text_before_image
         self.allow_truncated_content = allow_truncated_content
+        self.isolate_block_errors = isolate_block_errors
 
     def build_sampling_params(
         self,
@@ -295,11 +316,15 @@ def new_vlm_client(
     max_retries: int = 3,
     retry_backoff_factor: float = 0.5,
     skip_model_name_checking: bool = False,
+    *,
+    isolate_block_errors: bool = False,
 ) -> VlmClient:
+    validate_batch_error_isolation(backend, isolate_block_errors)
     if backend == "http-client":
         from .http_client import HttpVlmClient
 
         return HttpVlmClient(
+            isolate_block_errors=isolate_block_errors,
             model_name=model_name,
             server_url=server_url,
             server_headers=server_headers,
@@ -355,6 +380,7 @@ def new_vlm_client(
         from .lmdeploy_engine_client import LmdeployEngineVlmClient
 
         return LmdeployEngineVlmClient(
+            isolate_block_errors=isolate_block_errors,
             lmdeploy_engine=lmdeploy_engine,
             prompt=prompt,
             system_prompt=system_prompt,
@@ -386,6 +412,7 @@ def new_vlm_client(
         from .vllm_async_engine_client import VllmAsyncEngineVlmClient
 
         return VllmAsyncEngineVlmClient(
+            isolate_block_errors=isolate_block_errors,
             vllm_async_llm=vllm_async_llm,
             prompt=prompt,
             system_prompt=system_prompt,
@@ -400,6 +427,7 @@ def new_vlm_client(
         from .llama_cpp_engine_client import LlamaCppEngineVlmClient
 
         return LlamaCppEngineVlmClient(
+            isolate_block_errors=isolate_block_errors,
             llama_cpp_engine=llama_cpp_engine,
             prompt=prompt,
             system_prompt=system_prompt,
