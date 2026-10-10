@@ -37,6 +37,15 @@ def _restore_cross_page_table_module():
     importlib.reload(cross_page_table)
 
 
+@pytest.fixture
+def mineru_table_merge() -> None:
+    """真实表格集成用例依赖可选 MinerU 包，未安装辅助模块时明确跳过。"""
+    from mineru_vl_utils.post_process import cross_page_table
+
+    if not cross_page_table._HAS_TABLE_MERGE:
+        pytest.skip("requires optional MinerU table merge helpers")
+
+
 def _table_block(html: str) -> ContentBlock:
     """构造归一化 bbox 的最小 table block。"""
     return ContentBlock(type="table", bbox=[0.1, 0.1, 0.9, 0.9], angle=0, content=html)
@@ -162,7 +171,7 @@ def test_table_merge_unavailable_warning_describes_import_paths(monkeypatch):
     assert "last import error" in messages[0]
 
 
-def test_prepare_merge_task_uses_rendered_segments_for_colspan_boundary():
+def test_prepare_merge_task_uses_rendered_segments_for_colspan_boundary(mineru_table_merge):
     """边界行视觉上都是 2 段时，不应因上一页 colspan 展开成 11 列而跳过。"""
     results = _results()
     pairs = find_cross_page_table_pairs(results)
@@ -174,7 +183,7 @@ def test_prepare_merge_task_uses_rendered_segments_for_colspan_boundary():
     assert tasks[0].expected_expanded_col_count == 11
 
 
-def test_detect_cross_page_cell_merge_expands_segment_flags_to_visual_columns():
+def test_detect_cross_page_cell_merge_expands_segment_flags_to_visual_columns(mineru_table_merge):
     """VLM 返回段级 cell_merge 后，应展开为 Magic-PDF 需要的视觉列级列表。"""
     results = _results()
 
@@ -183,7 +192,7 @@ def test_detect_cross_page_cell_merge_expands_segment_flags_to_visual_columns():
     assert results[1][0]["cell_merge"] == [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
 
-def test_detect_cross_page_cell_merge_skips_wrong_segment_count_response():
+def test_detect_cross_page_cell_merge_skips_wrong_segment_count_response(mineru_table_merge):
     """VLM 返回长度与渲染段数不一致时，应跳过写入 cell_merge。"""
     results = _results()
 
@@ -192,7 +201,7 @@ def test_detect_cross_page_cell_merge_skips_wrong_segment_count_response():
     assert "cell_merge" not in results[1][0]
 
 
-def test_prepare_merge_task_skips_real_rendered_segment_mismatch():
+def test_prepare_merge_task_skips_real_rendered_segment_mismatch(mineru_table_merge):
     """边界行真实渲染段数不一致时，应继续跳过跨页单元格合并 prompt。"""
     previous_html = "<table><tr><td>A</td><td>B</td><td>C</td></tr></table>"
     current_html = "<table><tr><td>A</td><td>B</td></tr></table>"
