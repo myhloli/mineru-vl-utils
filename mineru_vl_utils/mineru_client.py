@@ -85,6 +85,7 @@ ANGLE_MAPPING: dict[str, Literal[0, 90, 180, 270]] = {
 IMAGE_ANALYSIS_TYPES = {"image", "chart"}
 IMAGE_CAPTION_CONTAINER_TYPES = {"image", "chart", "image_block"}
 INTERNAL_BLOCK_THRESHOLD = 0.9
+LAYOUT_DEDUPLICATION_IOU_THRESHOLD = 0.9
 IMAGE_ANALYSIS_MIN_BLOCK_SIZE = 0.1
 IMAGE_ANALYSIS_MIN_BLOCK_AREA = 0.01
 _ExecutorResult = TypeVar("_ExecutorResult")
@@ -187,6 +188,25 @@ class MinerUClientHelper:
         return cls._bbox_intersection_area(inner, outer) / inner_area
 
     @classmethod
+    def _deduplicate_layout_blocks(cls, blocks: list[ContentBlock]) -> list[ContentBlock]:
+        """按 IoU 抑制同类型同角度的重复框，保留首次出现的对象及原始阅读顺序。"""
+        kept_blocks: list[ContentBlock] = []
+        candidates: dict[tuple[str, int | None], list[tuple[ContentBlock, float]]] = {}
+        for block in blocks:
+            group = candidates.setdefault((block.type, block.angle), [])
+            bbox = block.bbox
+            area = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+            for kept, kept_area in group:
+                intersection = cls._bbox_intersection_area(bbox, kept.bbox)
+                union = math.fsum((area, kept_area, -intersection))
+                if union > 0 and intersection / union > LAYOUT_DEDUPLICATION_IOU_THRESHOLD:
+                    break
+            else:
+                kept_blocks.append(block)
+                group.append((block, area))
+        return kept_blocks
+
+    @classmethod
     def _find_covered_block_indices(
         cls,
         blocks: Sequence[ContentBlock],
@@ -274,6 +294,7 @@ class MinerUClientHelper:
                 blocks.append(ContentBlock(ref_type, bbox, angle=angle))
         if not matched and output.strip():
             logger.warning("Layout output does not match expected format: {}", output)
+        blocks = self._deduplicate_layout_blocks(blocks)
         return self._filter_table_internal_layout_blocks(blocks)
 
     @classmethod
