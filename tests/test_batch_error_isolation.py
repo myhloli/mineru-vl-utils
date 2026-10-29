@@ -327,6 +327,7 @@ def test_factory_and_mineru_client_forward_isolation(monkeypatch, backend, modul
     MinerUClient(
         backend=backend,
         isolate_block_errors=enabled,
+        sampling_params={},  # 本测试只核对错误隔离透传，不构造后端采样默认值。
         model=object(),
         processor=object(),
         llama_cpp_engine=object(),
