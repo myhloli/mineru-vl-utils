@@ -45,6 +45,9 @@ def pipeline_type(monkeypatch: pytest.MonkeyPatch) -> type:
     class GenerationConfig(SimpleNamespace):
         """保存真实客户端传给 LMDeploy 的生成参数。"""
 
+    class TurbomindEngineConfig(SimpleNamespace):
+        """区分 TurboMind 配置；此处 Pipeline 的通用替身不启用专属默认值。"""
+
     class Pipeline:
         """模拟可从多线程调用的 Pipeline，记录并发数和参数。"""
 
@@ -84,6 +87,7 @@ def pipeline_type(monkeypatch: pytest.MonkeyPatch) -> type:
 
     module = ModuleType("lmdeploy")
     module.GenerationConfig = GenerationConfig
+    module.TurbomindEngineConfig = TurbomindEngineConfig
     module.pipeline = Pipeline
     pipeline_module = ModuleType("lmdeploy.pipeline")
     pipeline_module.Pipeline = Pipeline

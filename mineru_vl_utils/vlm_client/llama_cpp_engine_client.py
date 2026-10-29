@@ -120,6 +120,7 @@ class LlamaCppEngineVlmClient(VlmClient):
             "presence_penalty": sp.presence_penalty,
             "frequency_penalty": sp.frequency_penalty,
             "repeat_penalty": sp.repetition_penalty,
+            "repeat_last_n": sp.repeat_last_n,
             "n_predict": sp.max_new_tokens,
         }
         return self.LlamaCppSamplingParams(**{k: v for k, v in llama_cpp_sp_dict.items() if v is not None})
