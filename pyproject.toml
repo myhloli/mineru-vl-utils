@@ -46,13 +46,13 @@ transformers = [
     "torchvision",
 ]
 vllm = [
-    "vllm>=0.19.1,<0.29.0",
+    "vllm>=0.19.1,<0.31.0",
 ]
 mlx = [
     "mlx-vlm>=0.7.0,<0.8.0",
 ]
 lmdeploy = [
-    "lmdeploy>=0.17.0,<0.18",
+    "lmdeploy>=0.17.0,<0.19",
     "qwen-vl-utils>=0.0.14,<1",
 ]
 llama-cpp = [

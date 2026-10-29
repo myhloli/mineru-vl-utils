@@ -75,7 +75,7 @@ pip install -U mineru-vl-utils
 ```
 
 The 2.0 development line requires Transformers 5.10.1 or newer within 5.x.
-Supported Python versions are 3.10–3.14. LMDeploy uses >=0.17.0,<0.18, vLLM uses >=0.19.1,<0.29.0, and MLX-VLM uses >=0.7.0,<0.8.0. MLX-VLM requires Transformers >=5.14; vLLM 0.19.1 excludes Python 3.14, which selects a newer release in the supported range.
+Supported Python versions are 3.10–3.14. LMDeploy uses >=0.17.0,<0.19, vLLM uses >=0.19.1,<0.31.0, and MLX-VLM uses >=0.7.0,<0.8.0. MLX-VLM requires Transformers >=5.14; vLLM 0.19.1 excludes Python 3.14, which selects a newer release in the supported range.
 
 Synchronous vLLM clients pass raw prompts to `LLM.generate`; asynchronous clients use rendered engine inputs. MLX and LMDeploy cancellation waits for in-flight synchronous work before releasing the caller’s model lease.
 
