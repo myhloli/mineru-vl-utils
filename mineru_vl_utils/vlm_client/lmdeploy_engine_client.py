@@ -67,13 +67,17 @@ class LmdeployEngineVlmClient(VlmClient):
     def build_lmdeploy_generation_config(self, sampling_params: SamplingParams | None):
         sp = self.build_sampling_params(sampling_params)
 
-        do_sample = ((sp.temperature or 0.0) > 0.0) and ((sp.top_k or 1) > 1)
+        # TurboMind 的 top-1 惩罚仍需 do_sample=True，否则引擎会将 repetition_penalty 重置为 1。
+        do_sample = sp.do_sample
+        if do_sample is None:
+            do_sample = ((sp.temperature or 0.0) > 0.0) and ((sp.top_k or 1) > 1)
 
         lmdeploy_sp_dict = {
             "temperature": sp.temperature,
             "top_p": sp.top_p,
             "top_k": sp.top_k,
             "repetition_penalty": sp.repetition_penalty,
+            "random_seed": sp.random_seed,
             # WARNING - engine.py:606: num tokens is larger than max session len xxx. Update max_new_tokens=xxx.
             "max_new_tokens": sp.max_new_tokens if sp.max_new_tokens is not None else self.model_max_length,
         }

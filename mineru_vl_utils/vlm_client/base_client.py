@@ -53,6 +53,9 @@ class SamplingParams:
     repetition_penalty: float | None = None
     no_repeat_ngram_size: int | None = None
     max_new_tokens: int | None = None
+    repeat_last_n: int | None = None  # 仅 llama.cpp 使用的重复统计窗口。
+    do_sample: bool | None = None  # 仅 LMDeploy 使用；None 保留适配器原有推导行为。
+    random_seed: int | None = None  # 仅 LMDeploy 使用的显式采样种子。
 
 
 @dataclass
@@ -115,6 +118,9 @@ class VlmClient:
             repetition_penalty = self.sampling_params.repetition_penalty
             no_repeat_ngram_size = self.sampling_params.no_repeat_ngram_size
             max_new_tokens = self.sampling_params.max_new_tokens
+            repeat_last_n = self.sampling_params.repeat_last_n
+            do_sample = self.sampling_params.do_sample
+            random_seed = self.sampling_params.random_seed
         else:
             temperature = None
             top_p = None
@@ -124,6 +130,9 @@ class VlmClient:
             repetition_penalty = None
             no_repeat_ngram_size = None
             max_new_tokens = None
+            repeat_last_n = None
+            do_sample = None
+            random_seed = None
 
         if sampling_params:
             if sampling_params.temperature is not None:
@@ -142,6 +151,12 @@ class VlmClient:
                 no_repeat_ngram_size = sampling_params.no_repeat_ngram_size
             if sampling_params.max_new_tokens is not None:
                 max_new_tokens = sampling_params.max_new_tokens
+            if sampling_params.repeat_last_n is not None:
+                repeat_last_n = sampling_params.repeat_last_n
+            if sampling_params.do_sample is not None:
+                do_sample = sampling_params.do_sample
+            if sampling_params.random_seed is not None:
+                random_seed = sampling_params.random_seed
 
         return SamplingParams(
             temperature=temperature,
@@ -152,6 +167,9 @@ class VlmClient:
             repetition_penalty=repetition_penalty,
             no_repeat_ngram_size=no_repeat_ngram_size,
             max_new_tokens=max_new_tokens,
+            repeat_last_n=repeat_last_n,
+            do_sample=do_sample,
+            random_seed=random_seed,
         )
 
     def predict(

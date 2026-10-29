@@ -4,6 +4,8 @@ import os
 import re
 from concurrent.futures import Executor
 from contextlib import nullcontext
+from copy import deepcopy
+from dataclasses import replace
 from typing import Any, Callable, Literal, Sequence, TypeVar
 
 from loguru import logger
@@ -42,7 +44,12 @@ class MinerUSamplingParams(SamplingParams):
         repetition_penalty: float | None = 1.0,
         no_repeat_ngram_size: int | None = 100,
         max_new_tokens: int | None = None,
-    ):
+        *,
+        repeat_last_n: int | None = None,
+        do_sample: bool | None = None,
+        random_seed: int | None = None,
+    ) -> None:
+        """保留通用采样默认值，并允许本地引擎显式传入防重复参数。"""
         super().__init__(
             temperature,
             top_p,
@@ -52,6 +59,9 @@ class MinerUSamplingParams(SamplingParams):
             repetition_penalty,
             no_repeat_ngram_size,
             max_new_tokens,
+            repeat_last_n=repeat_last_n,
+            do_sample=do_sample,
+            random_seed=random_seed,
         )
 
 
@@ -74,6 +84,30 @@ DEFAULT_SAMPLING_PARAMS: dict[str, SamplingParams] = {
     "[layout]": MinerUSamplingParams(),
     "[cross_page_table_merge]": MinerUSamplingParams(presence_penalty=1.0, frequency_penalty=0.05),
 }
+
+
+def _build_default_sampling_params(backend: str, lmdeploy_engine: Any = None) -> dict[str, SamplingParams]:
+    """按实际本地引擎复制四类防重复配置，其他类别及 HTTP 保留通用默认值。"""
+    params = deepcopy(DEFAULT_SAMPLING_PARAMS)
+    target_keys = ("image", "chart", "equation", "[default]")
+    if backend == "llama-cpp-engine":
+        for key in target_keys:
+            params[key] = replace(params[key], repeat_last_n=512)
+    elif backend == "lmdeploy-engine":
+        from lmdeploy import TurbomindEngineConfig
+
+        if isinstance(lmdeploy_engine.backend_config, TurbomindEngineConfig):
+            for key in target_keys:
+                params[key] = replace(
+                    params[key],
+                    repetition_penalty=1.05,
+                    do_sample=True,
+                    top_k=1,
+                    top_p=1.0,
+                    temperature=1.0,
+                    random_seed=0,
+                )
+    return params
 
 ANGLE_MAPPING: dict[str, Literal[0, 90, 180, 270]] = {
     "<|rotate_up|>": 0,
@@ -529,7 +563,7 @@ class MinerUClient:
         model_path: str | None = None,
         prompts: dict[str, str] = DEFAULT_PROMPTS,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
-        sampling_params: dict[str, SamplingParams] = DEFAULT_SAMPLING_PARAMS,
+        sampling_params: dict[str, SamplingParams] | None = None,
         layout_image_size: tuple[int, int] = (1036, 1036),
         min_image_edge: int = 28,
         max_image_edge_ratio: float = 50,
@@ -641,6 +675,12 @@ class MinerUClient:
             if llama_cpp_engine is None:
                 raise ValueError("llama_cpp_engine must be provided for the llama-cpp-engine backend.")
 
+        # 未提供配置时按实际后端选择默认值；显式字典完整保留，并隔离实例间的可变状态。
+        sampling_params = (
+            _build_default_sampling_params(backend, lmdeploy_engine)
+            if sampling_params is None
+            else deepcopy(sampling_params)
+        )
         self.client = new_vlm_client(
             isolate_block_errors=isolate_block_errors,
             backend=backend,

@@ -9,7 +9,7 @@ and handling responses from the MinerU Vision-Language Model.
 
 We provides 7 different backends(deployment modes):
 
-1. **http-client**: A HTTP client for interacting with the OpenAI-compatible model server.
+1. **http-client**: An HTTP client for interacting with an OpenAI-compatible model server.
 2. **transformers**: A backend for using HuggingFace Transformers models. (slow but simple to install)
 3. **mlx-engine**: A backend for using Apple Silicon devices with macOS.
 4. **lmdeploy-engine**: A backend for using the LmDeploy engine.
@@ -110,30 +110,19 @@ pip install -U "mineru-vl-utils[llama-cpp]"
 ```
 
 > [!NOTE]
-> For using the `http-client` backend, you still need to have another 
-> `vllm`(or other LLM deployment tool) environment to serve the model as a http server.
+> For the `http-client` backend, serve the model as an OpenAI-compatible HTTP service in a separate environment.
 
 ## Serving the Model (Optional)
 
 > This is only needed if you want to use the `http-client` backend.
 
-You can use `vllm` or another LLM deployment tool to serve the model.
-Here we only demonstrate how to use `vllm` to serve the model.
-
-With vllm>=0.10.1, you can use following command to serve the model.
+The following example uses vLLM to serve the model.
 The logits processor is used to support `no_repeat_ngram_size` sampling param,
 which can help the model to avoid generating repeated content.
 
 ```bash
 vllm serve opendatalab/MinerU2.5-2509-1.2B --host 127.0.0.1 --port 8000 \
   --logits-processors mineru_vl_utils:MinerULogitsProcessor
-```
-
-If you are using vllm<0.10.1, `no_repeat_ngram_size` sampling param is not supported.
-You still can serve the model without logits processor:
-
-```bash
-vllm serve opendatalab/MinerU2.5-2509-1.2B --host 127.0.0.1 --port 8000
 ```
 
 ## Using `MinerUClient` by Code
