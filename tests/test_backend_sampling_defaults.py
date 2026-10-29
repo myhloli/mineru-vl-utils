@@ -54,7 +54,8 @@ def lmdeploy_types(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
 
 def test_llama_defaults_reach_native_sampler_and_default_block_fallback() -> None:
     """四类与正文回退均传入 512 窗口，表格和布局等仍使用原始配置。"""
-    from mineru_llama_cpp import Engine
+    # 基础安装不包含可选原生后端，仅跳过当前用例，保留其他后端的配置检查。
+    Engine = pytest.importorskip("mineru_llama_cpp").Engine
 
     client = MinerUClient(backend="llama-cpp-engine", llama_cpp_engine=object.__new__(Engine), use_tqdm=False)
     for key in TARGET_KEYS:
